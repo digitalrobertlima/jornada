@@ -238,7 +238,7 @@ export function renderOnboarding(root, { onDone }) {
 // ------------------------------------------------------------ Cadastro rápido (5 botões)
 
 const KIND_TITLES = {
-  boleto: 'Novo boleto', card: 'Novo cartão de crédito', person: 'Dívida com pessoa (Pix)', financing: 'Financiamento / empréstimo', vital: 'Conta vital / casa',
+  boleto: 'Novo boleto', card: 'Novo cartão de crédito', person: 'Dívida com pessoa (Pix)', financing: 'Empréstimo / financiamento', vital: 'Conta vital / casa',
 };
 
 export function openObligationWizard(kind, existingId = null) {
@@ -305,10 +305,27 @@ export function openObligationWizard(kind, existingId = null) {
       <p class="tiny">Dívidas com pessoas viram Quick Wins: quitá-las primeiro traz alívio emocional imediato.</p>`;
   } else if (kind === 'financing') {
     body = `
-      ${textField('beneficiary', 'O que é', ex?.beneficiary || '', { required: true, placeholder: 'Ex.: Empréstimo pessoal, moto, carro' })}
-      ${moneyField('amount', 'Saldo devedor total', ex?.balance ?? '', { big: true, hint: 'Se não souber, deixe em branco: o app soma as parcelas que faltam.' })}
+      ${textField('beneficiary', 'O que é', ex?.beneficiary || '', { required: true, placeholder: 'Ex.: Mercado Pago (Dinheiro Express), moto, carro' })}
+      ${moneyField('received', 'Quanto caiu na sua mão', ex?.receivedAmount ?? '', { hint: 'O valor que você recebeu. Serve para mostrar quanto o empréstimo custa.' })}
+      ${moneyField('amount', 'Total a pagar (o que falta)', ex?.balance ?? '', { big: true, hint: 'Se não souber, deixe em branco: o app soma as parcelas que faltam.' })}
       ${installmentBlock(ex, { forced: true })}
-      ${numField('monthlyInterestPercent', 'Juros ao mês (%)', ex?.monthlyInterestPercent ?? '', { placeholder: 'Ex.: 6,9' })}
+      ${numField('monthlyInterestPercent', 'Juros ao mês (%)', ex?.monthlyInterestPercent ?? '', { placeholder: 'Ex.: 23', hint: 'Está no app do banco, em "condições do empréstimo".' })}
+      <div class="alert" data-loan-cost hidden></div>
+      ${ex ? '' : (() => {
+    const accs = store.state.accounts.filter((a) => a.profileId === pid && isRealLiquidity(a));
+    const d = store.derive();
+    const targets = d ? d.tri.frontline : [];
+    return `<div class="card tight stack">
+        <span class="eyebrow">O dinheiro já caiu?</span>
+        <label class="field"><span>Registrar a entrada em</span><select class="input" name="receivedAccount">
+          ${accs.map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}
+          <option value="">Não registrar entrada</option></select></label>
+        ${targets.length ? `<label class="field"><span>Usou para pagar alguma conta?</span><select class="input" name="payWith">
+          <option value="">Não / ainda não</option>
+          ${targets.map((t) => `<option value="${esc(t.id)}">${esc(t.ob.beneficiary)} · ${brl(t.dueNow)}</option>`).join('')}</select>
+          <small>O app dá baixa na conta usando o dinheiro do empréstimo.</small></label>` : ''}
+      </div>`;
+  })()}
       ${checkField('isWorkTool', 'É ferramenta de trabalho (moto, carro de app, máquina, insumo)', ex?.isWorkTool, 'Ferramenta de trabalho vai para a Linha de Frente: sem ela, a renda para.')}
       ${legacyBlock(ex?.isLegacy)}`;
   } else if (kind === 'vital') {
@@ -338,6 +355,22 @@ export function openObligationWizard(kind, existingId = null) {
       const form = el.querySelector('form');
       bindSegments(form);
       bindInstallments(form);
+      const costBox = form.querySelector('[data-loan-cost]');
+      if (costBox) {
+        const showCost = () => {
+          const rec = parseMoney(form.received.value);
+          const tot = parseMoney(form.amount.value);
+          const rate = realHourlyRate(store.profile);
+          const cost = round2(tot - rec);
+          costBox.hidden = !(rec > 0 && cost > 0);
+          if (!costBox.hidden) {
+            costBox.innerHTML = `${icon('alert')}<div>Você recebe ${brl(rec)} e devolve ${brl(tot)}: este empréstimo custa <b>${brl(cost)}</b>${rate > 0 ? ` = <b>${lifeTime((cost / rate) * 60)}</b> da sua vida` : ''} (${Math.round((cost / rec) * 100)}% a mais).</div>`;
+          }
+        };
+        form.addEventListener('input', showCost);
+        form.addEventListener('change', showCost);
+        setTimeout(showCost, 0);
+      }
       const shared = form.querySelector('[name=isShared]');
       if (shared) shared.onchange = () => { form.querySelector('#share-box').hidden = !shared.checked; };
 
@@ -372,10 +405,25 @@ export function openObligationWizard(kind, existingId = null) {
         const v = formData(form);
         try {
           const changes = await buildObligationChanges(kind, v, ex);
-          await store.commit(changes);
+          await store.commit(changes, { render: false });
+          // empréstimo novo: entrada do dinheiro e, se pediu, baixa na conta que ele pagou
+          const received = parseMoney(v.received);
+          let paidMsg = '';
+          if (!ex && kind === 'financing' && received > 0 && v.receivedAccount) {
+            const inc = addLedgerEntry(store.state, { profileId: pid, direction: 'in', amount: received, accountId: v.receivedAccount, category: 'empréstimo', note: v.beneficiary.trim() }, { today, btcPrice: store.btcPrice() });
+            await store.commit(inc.changes, { render: false });
+            const target = v.payWith ? itemFor(v.payWith) : null;
+            if (target) {
+              const amt = round2(Math.min(received, target.dueNow));
+              const pay = payObligation(store.state, { obligationId: target.id, profileId: pid, amount: amt, accountId: v.receivedAccount, date: today }, { today, btcPrice: store.btcPrice() });
+              await store.commit(pay.changes, { render: false });
+              paidMsg = ` ${esc(target.ob.beneficiary)} recebeu ${brl(amt)}.`;
+            }
+          }
+          store.onChange();
           close();
           haptic();
-          toast(ex ? 'Atualizado.' : 'Na triagem. Veja onde caiu no Campo de Batalha.', { tone: 'cyan' });
+          toast(ex ? 'Atualizado.' : `Na triagem.${paidMsg}`, { tone: 'cyan' });
         } catch (err) {
           toast(esc(err.message), { tone: 'magenta' });
         }
@@ -456,11 +504,15 @@ async function buildObligationChanges(kind, v, ex) {
       ...ins.fields,
     });
   } else if (kind === 'financing') {
-    need(v.beneficiary?.trim(), 'Diga o que é o financiamento.');
-    need(amount > 0, 'Informe o saldo devedor.');
+    need(v.beneficiary?.trim(), 'Diga o que é o empréstimo.');
+    need(amount > 0, 'Informe o total a pagar ou as parcelas.');
+    const received = parseMoney(v.received);
     Object.assign(base, {
       type: legacy ? 'legacy_debt' : 'financing', bucket: 'pessoal', beneficiary: v.beneficiary.trim(), balance: amount,
-      principalAmount: legacy ? (parseMoney(v.principalAmount) || amount) : (ex ? ex.principalAmount : amount),
+      receivedAmount: received || ex?.receivedAmount || null,
+      loanTotal: ex?.loanTotal || amount,
+      // base do totem = o que você recebeu; o resto é juro (topo magenta)
+      principalAmount: legacy ? (parseMoney(v.principalAmount) || amount) : (received > 0 && received < amount ? received : (ex ? ex.principalAmount : amount)),
       ...ins.fields,
       monthlyInterestPercent: num(v.monthlyInterestPercent), dueDate: ins.nextDue || ex?.dueDate || null, isWorkTool: Boolean(v.isWorkTool), isLegacy: legacy, rules: {},
     });
@@ -501,6 +553,8 @@ export function openObligationDetail(id) {
       ? `<span class="c-magenta"><b>${dateHuman(ob.dueDate)} · atrasada há ${item.late} dia${item.late > 1 ? 's' : ''}</b></span>`
       : item.dueSoon ? `<span class="c-amber">${dateHuman(ob.dueDate)} · ${item.daysToDue === 0 ? 'vence hoje' : `vence em ${item.daysToDue} dia${item.daysToDue > 1 ? 's' : ''}`}</span>` : dateHuman(ob.dueDate)] : null,
     item.isProtestable && ob.rules.protestDeadline ? ['Prazo do cartório', dateHuman(ob.rules.protestDeadline)] : null,
+    ob.receivedAmount ? ['Você recebeu', brl(ob.receivedAmount)] : null,
+    ob.receivedAmount && num(ob.loanTotal) > num(ob.receivedAmount) ? ['Custo do empréstimo', `<span class="c-magenta">${brl(num(ob.loanTotal) - num(ob.receivedAmount))} · ${lifeTime(((num(ob.loanTotal) - num(ob.receivedAmount)) / Math.max(0.01, rate)) * 60)} de vida</span>`] : null,
     item.installment ? ['Parcelas', `${item.installment.total ? `${item.installment.paid} de ${item.installment.total} pagas · ` : ''}faltam ${item.installment.left ?? '?'}x de ${brl(item.installment.amount)}`] : null,
     ob.isShared ? ['Sua cota', brl(item.open)] : null,
   ].filter(Boolean);

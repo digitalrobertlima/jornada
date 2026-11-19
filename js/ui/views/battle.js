@@ -10,7 +10,7 @@ const ADD = [
   ['boleto', 'boleto', '+ Boleto (colar código)'],
   ['card', 'card', '+ Cartão'],
   ['person', 'person', '+ Pix / Pessoa'],
-  ['financing', 'bank', '+ Financiamento'],
+  ['financing', 'bank', '+ Empréstimo / Financiamento'],
   ['vital', 'home', '+ Vital / Casa'],
 ];
 

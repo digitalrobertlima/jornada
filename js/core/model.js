@@ -182,7 +182,7 @@ export function installmentInfo(ob) {
   const total = ob.installmentsTotal == null ? left : num(ob.installmentsTotal);
   const paid = total != null && left != null ? Math.max(0, total - left) : null;
   const current = total ? Math.min(total, (paid ?? 0) + 1) : null;
-  const label = total ? (left === 1 ? `última parcela (${total}/${total})` : `parcela ${current}/${total}`) : 'parcelado';
+  const label = total === 1 ? 'parcela única' : total ? (left === 1 ? `última parcela (${total}/${total})` : `parcela ${current}/${total}`) : 'parcelado';
   return { amount, left, total, paid, current, label };
 }
 
