@@ -20,13 +20,12 @@ export function renderWallet(d, store) {
     const acc = accById.get(e.accountId);
     const [, m, day] = e.date.split('-');
     const cls = e.direction === 'in' ? 'in' : e.impactCashToday ? '' : 'nocash';
-    return `<div class="tx">
+    return `<button type="button" class="tx tap" data-act="entry-open" data-id="${esc(e.id)}">
       <div class="day"><b>${day}</b>${m}</div>
       <div class="what"><div>${esc(e.note || e.category)}</div>
         <div class="tiny">${esc(acc?.name || 'sem conta')} · ${esc(e.category)}${e.status === 'scheduled' ? ' · <span class="c-amber">agendado</span>' : ''}${!e.impactCashToday ? ' · não mexe no caixa' : ''}${e.installments > 1 ? ` · ${e.installments}x` : ''}</div></div>
-      <div class="val ${cls} num">${e.direction === 'in' ? '+' : '−'}${brl(e.amount)}
-        ${e.obligationId ? '' : `<br><button class="del" data-act="entry-del" data-id="${esc(e.id)}">desfazer</button>`}</div>
-    </div>`;
+      <div class="val ${cls} num">${e.direction === 'in' ? '+' : '−'}${brl(e.amount)}<br><span class="tiny c-ink3">›</span></div>
+    </button>`;
   }).join('');
 
   return `<div class="stack">
@@ -42,12 +41,12 @@ export function renderWallet(d, store) {
     <p class="tiny">Só a liquidez real paga aluguel, boleto e conta de luz. O resto nunca é tratado como dinheiro sobrando.</p>
 
     <section class="card" aria-labelledby="t-onda">
-      <div class="row between"><h2 id="t-onda" style="font-size:15px">Onda de Liquidez</h2><span class="eyebrow">14 dias atrás · 15 à frente</span></div>
+      <div class="row between"><h2 id="t-onda" style="font-size:15px">Seu dinheiro, dia a dia</h2><span class="eyebrow">14 dias atrás · 15 à frente</span></div>
       <div class="chart-wrap" id="wave"></div>
       <div class="chart-legend">
         <span><i></i>Saldo real (entradas e saídas agendadas)</span>
-        <span><i class="dash"></i>Linha d'Água ${brl(wl.floor)}</span>
-        <span><i class="dot"></i>Dia que fura o piso</span>
+        <span><i class="dash"></i>Contas essenciais (15 dias) ${brl(wl.floor)}</span>
+        <span><i class="dot"></i>Dia em que falta dinheiro</span>
       </div>
       <details style="margin-top:8px"><summary class="tiny" style="cursor:pointer">Ver como tabela</summary><div id="wave-table"></div></details>
     </section>

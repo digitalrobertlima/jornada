@@ -48,11 +48,11 @@ export function renderWave(container, points, { floor = 0, today } = {}) {
   const xToday = x(Math.max(0, todayIdx));
   const floorLine = floor > 0
     ? `<line x1="${xToday.toFixed(1)}" x2="${(W - PAD.right).toFixed(1)}" y1="${yFloor.toFixed(1)}" y2="${yFloor.toFixed(1)}" stroke="#A3ACBB" stroke-width="1.5" stroke-dasharray="5 5"/>
-       <text x="${(W - PAD.right).toFixed(1)}" y="${(yFloor - 6).toFixed(1)}" fill="#A3ACBB" font-size="10.5" text-anchor="end">Linha d'Água ${esc(brlShort(floor))}</text>`
+       <text x="${(W - PAD.right).toFixed(1)}" y="${(yFloor - 6).toFixed(1)}" fill="#A3ACBB" font-size="10.5" text-anchor="end">Essenciais ${esc(brlShort(floor))}</text>`
     : '';
 
   const id = `w${Math.random().toString(36).slice(2, 7)}`;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Onda de Liquidez: saldo real diário com a Linha d'Água">
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Seu dinheiro dia a dia com a linha das contas essenciais">
     <defs>
       <linearGradient id="${id}g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#00BFFF" stop-opacity="0.32"/><stop offset="1" stop-color="#00BFFF" stop-opacity="0"/></linearGradient>
       <clipPath id="${id}c"><rect x="${xToday.toFixed(1)}" y="${yFloor.toFixed(1)}" width="${(W - xToday).toFixed(1)}" height="${(H - yFloor).toFixed(1)}"/></clipPath>
@@ -94,7 +94,7 @@ export function renderWave(container, points, { floor = 0, today } = {}) {
     const ev = p.events.slice(0, 3).map((e) => `<div class="tiny">${e.direction === 'in' ? '+' : '−'} ${esc(brl(e.amount))} · ${esc(e.note || e.category)}</div>`).join('');
     tip.innerHTML = `<div class="tiny">${esc(dateHuman(p.date))}${p.offset === 0 ? ' · hoje' : p.offset > 0 ? ' · projeção' : ''}</div>
       <b class="num">${esc(brl(p.balance))}</b>
-      ${below ? `<div class="c-magenta tiny">⚠ Furo: faltam ${esc(brl(floor - p.balance))} para a Linha d'Água</div>` : ''}${ev}`;
+      ${below ? `<div class="c-magenta tiny">⚠ Faltam ${esc(brl(floor - p.balance))} para as contas essenciais</div>` : ''}${ev}`;
     const left = Math.min(r.width - 80, Math.max(80, (px / W) * r.width));
     tip.style.left = `${left}px`;
     tip.classList.add('show');
@@ -111,5 +111,5 @@ export function renderWave(container, points, { floor = 0, today } = {}) {
 
 export function waveTable(points, floor) {
   const rows = points.filter((p) => p.offset >= 0).map((p) => `<tr><td>${dateShort(p.date)}</td><td class="num">${brl(p.balance)}</td><td>${floor > 0 && p.balance < floor ? '<span class="c-magenta">furo</span>' : 'ok'}</td></tr>`).join('');
-  return `<table class="data-table"><thead><tr><th>Dia</th><th>Saldo projetado</th><th>Linha d'Água</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="data-table"><thead><tr><th>Dia</th><th>Saldo projetado</th><th>Essenciais</th></tr></thead><tbody>${rows}</tbody></table>`;
 }

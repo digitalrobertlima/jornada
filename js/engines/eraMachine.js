@@ -37,7 +37,7 @@ export function evaluateEras(ctx) {
   const era1Checks = [
     { label: 'Nenhum boleto a caminho do cartório', ok: protestables.length === 0, detail: protestables.length ? `${protestables.length} em risco` : '' },
     { label: 'Contas vitais em dia', ok: overdueVitals.length === 0, detail: overdueVitals.length ? `${overdueVitals.length} atrasada(s)` : '' },
-    { label: 'Linha d\'Água coberta (15 dias)', ok: waterlineDeficit === 0, detail: waterlineDeficit ? `faltam ${waterlineDeficit.toFixed(2)}` : '' },
+    { label: 'Contas essenciais dos próximos 15 dias cobertas', ok: waterlineDeficit === 0, detail: waterlineDeficit ? `faltam ${waterlineDeficit.toFixed(2)}` : '' },
     { label: `Micro-escudo de R$ ${shieldTarget.toFixed(0)}`, ok: shieldCurrent >= shieldTarget - 0.01, detail: '' },
   ];
   const era1Progress = (
@@ -52,7 +52,7 @@ export function evaluateEras(ctx) {
   const quickWins = tri.battlefield.filter((i) => i.quickWin).length;
   const cards = tri.battlefield.filter((i) => i.ob.type === 'card_debt').length;
   const era2Checks = [
-    { label: 'Quick Wins (pessoas) quitados', ok: quickWins === 0, detail: quickWins ? `${quickWins} restante(s)` : '' },
+    { label: 'Dívidas com pessoas quitadas', ok: quickWins === 0, detail: quickWins ? `${quickWins} restante(s)` : '' },
     { label: 'Cartões ativos quitados', ok: cards === 0, detail: cards ? `${cards} restante(s)` : '' },
     { label: 'Campo de Batalha limpo', ok: bfOpen === 0, detail: '' },
     { label: 'Gastos do dia a dia no cartão com garantia + cashback em BTC', ok: Boolean(ctx.hasYieldCard), detail: 'opcional', soft: true },
@@ -92,8 +92,8 @@ export function evaluateEras(ctx) {
   const reasons = [];
   if (protestables.length) reasons.push(`${protestables.length} boleto(s) a caminho do cartório`);
   if (overdueVitals.length) reasons.push(`${overdueVitals.length} conta(s) vital(is) atrasada(s)`);
-  if (waterlineDeficit > 0) reasons.push(`Linha d'Água furada em R$ ${waterlineDeficit.toFixed(2).replace('.', ',')}`);
-  if (currentEra < 4) reasons.push(`Conclua a Era ${ERAS[currentEra - 1].roman} — ${ERAS[currentEra - 1].name}`);
+  if (waterlineDeficit > 0) reasons.push(`Faltam R$ ${waterlineDeficit.toFixed(2).replace('.', ',')} para as contas essenciais`);
+  if (currentEra < 4) reasons.push(`Conclua a fase ${currentEra} — ${ERAS[currentEra - 1].name}`);
   const excess = round2(Math.max(0, cash - floor - shieldTarget));
 
   return {

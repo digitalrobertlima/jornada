@@ -171,7 +171,7 @@ test('Eras: perfil demo está na Era I com trava de soberania fechada', () => {
   assert.equal(ev.currentEra, 1);
   assert.equal(ev.lock.locked, true);
   assert.equal(ev.lock.excess, 0);
-  assert.ok(ev.lock.reasons.some((r) => r.includes("Linha d'Água")));
+  assert.ok(ev.lock.reasons.some((r) => r.includes('contas essenciais')));
 });
 
 test('Eras: tudo limpo destrava a Era IV e libera o excedente real', () => {

@@ -16,6 +16,7 @@ import { parseBoleto } from '../parsers/boletoParser.js';
 import { payObligation, addLedgerEntry, removeLedgerEntry } from '../engines/cashflow.js';
 import { buildItem, memberIds } from '../engines/triage.js';
 import { negotiationScript } from '../engines/scripts.js';
+import { describeAction } from '../engines/journal.js';
 import { moneyToMinutes, realHourlyRate } from '../engines/lifeHours.js';
 import { brlToSats } from '../engines/satsYield.js';
 import { buildDemoScenario } from '../db/demoScenario.js';
@@ -302,7 +303,7 @@ export function openObligationWizard(kind, existingId = null) {
       <label class="field"><span>Relação</span>${seg('bucket', [['familia', 'Família'], ['pessoal', 'Amigo(a)'], ['negocio', 'Trabalho']], ex?.bucket || 'familia')}</label>
       ${installmentBlock(ex)}
       <div data-single-due>${dateField('dueDate', 'Combinou alguma data? (opcional)', ex?.dueDate || '')}</div>
-      <p class="tiny">Dívidas com pessoas viram Quick Wins: quitá-las primeiro traz alívio emocional imediato.</p>`;
+      <p class="tiny">Dívidas com pessoas viram vitórias rápidas: quitar primeiro traz alívio imediato.</p>`;
   } else if (kind === 'financing') {
     body = `
       ${textField('beneficiary', 'O que é', ex?.beneficiary || '', { required: true, placeholder: 'Ex.: Mercado Pago (Dinheiro Express), moto, carro' })}
@@ -339,7 +340,7 @@ export function openObligationWizard(kind, existingId = null) {
         ${dateField('dueDate', 'Vencimento', ex?.dueDate || '', { required: true })}
       </div>
       ${checkField('recurrence', 'Repete todo mês', ex ? ex.recurrence === 'monthly' : true)}
-      ${multi ? `${checkField('isShared', 'Dividida com a casa (Modo Casa)', ex?.isShared, 'Cada perfil vê só a própria cota na Linha d\'Água.')}
+      ${multi ? `${checkField('isShared', 'Dividida com a casa (Modo Casa)', ex?.isShared, 'Cada perfil vê só a própria parte da conta.')}
         <div id="share-box" class="stack" ${ex?.isShared ? '' : 'hidden'}>
           <label class="field"><span>Como dividir</span>${seg('shareMode', [['equal', 'Partes iguais'], ['fixed', 'Minha cota fixa']], shareMode)}</label>
           ${moneyField('myShare', 'Minha cota (se fixa)', ex?.fixedShare?.[pid] ?? '')}
@@ -405,25 +406,25 @@ export function openObligationWizard(kind, existingId = null) {
         const v = formData(form);
         try {
           const changes = await buildObligationChanges(kind, v, ex);
-          await store.commit(changes, { render: false });
+          const act = await store.commit(changes, { render: false, label: `${ex ? 'Edição' : 'Cadastro'}: ${v.beneficiary || v.name || 'dívida'}` });
           // empréstimo novo: entrada do dinheiro e, se pediu, baixa na conta que ele pagou
           const received = parseMoney(v.received);
           let paidMsg = '';
           if (!ex && kind === 'financing' && received > 0 && v.receivedAccount) {
             const inc = addLedgerEntry(store.state, { profileId: pid, direction: 'in', amount: received, accountId: v.receivedAccount, category: 'empréstimo', note: v.beneficiary.trim() }, { today, btcPrice: store.btcPrice() });
-            await store.commit(inc.changes, { render: false });
+            await store.commit(inc.changes, { render: false, actionId: act.id });
             const target = v.payWith ? itemFor(v.payWith) : null;
             if (target) {
               const amt = round2(Math.min(received, target.dueNow));
               const pay = payObligation(store.state, { obligationId: target.id, profileId: pid, amount: amt, accountId: v.receivedAccount, date: today }, { today, btcPrice: store.btcPrice() });
-              await store.commit(pay.changes, { render: false });
+              await store.commit(pay.changes, { render: false, actionId: act.id });
               paidMsg = ` ${esc(target.ob.beneficiary)} recebeu ${brl(amt)}.`;
             }
           }
           store.onChange();
           close();
           haptic();
-          toast(ex ? 'Atualizado.' : `Na triagem.${paidMsg}`, { tone: 'cyan' });
+          if (paidMsg) toast(paidMsg.trim(), { tone: 'cyan' });
         } catch (err) {
           toast(esc(err.message), { tone: 'magenta' });
         }
@@ -562,7 +563,7 @@ export function openObligationDetail(id) {
   openSheet({
     title: ob.beneficiary,
     body: `<div class="stack">
-      <div class="row wrap" style="gap:6px"><span class="pill ${item.zone === 'frontline' ? 'magenta' : item.zone === 'battlefield' ? 'amber' : ''}">${item.zone === 'frontline' ? 'Zona 1 · Linha de Frente' : item.zone === 'battlefield' ? 'Zona 2 · Campo de Batalha' : 'Zona 3 · Quarentena'}</span>
+      <div class="row wrap" style="gap:6px"><span class="pill ${item.zone === 'frontline' ? 'magenta' : item.zone === 'battlefield' ? 'amber' : ''}">${item.zone === 'frontline' ? 'Urgente' : item.zone === 'battlefield' ? 'Dívida na fila' : 'Guardada para depois'}</span>
         <span class="pill">${esc(item.reason)}</span>
         ${item.late > 0 ? `<span class="pill magenta">${icon('alert')}Atrasada há ${item.late} dia${item.late > 1 ? 's' : ''}</span>` : ''}</div>
       ${item.late > 0 && item.riskParts.accrued > 0 ? `<div class="alert">${icon('alert')}<div>O atraso já somou <b>${brl(item.riskParts.accrued)}</b> em multa e juros — e continua crescendo todo dia.</div></div>` : ''}
@@ -571,16 +572,16 @@ export function openObligationDetail(id) {
       ${item.alerts.map((a) => `<div class="alert">${icon('alert')}<div>${esc(a.text)}</div></div>`).join('')}
       ${ob.barcode ? `<button class="btn sm ghost" data-copy="${esc(ob.barcode)}" type="button">${icon('copy')}Copiar linha digitável</button>` : ''}
       <div class="grid-2">
-        <button class="btn primary" data-do="pay" type="button">${icon(item.isProtestable ? 'shield' : 'check')}${item.zone === 'quarantine' ? 'Quitar com desconto' : item.isProtestable ? 'Protesto Segurado' : 'Pagar'}</button>
+        <button class="btn primary" data-do="pay" type="button">${icon(item.isProtestable ? 'shield' : 'check')}${item.zone === 'quarantine' ? 'Quitar com desconto' : item.isProtestable ? 'Paguei antes do cartório' : 'Paguei'}</button>
         <button class="btn" data-do="script" type="button">${icon('phone')}Roteiro</button>
       </div>
       <div class="grid-2">
         <button class="btn sm" data-do="edit" type="button">${icon('edit')}Editar</button>
         <label class="field" style="gap:2px"><select class="input" data-do-zone style="min-height:34px;font-size:13px;padding:4px 8px">
-          <option value="">Zona automática</option>
-          <option value="frontline"${ob.zone === 'frontline' ? ' selected' : ''}>Forçar Zona 1</option>
-          <option value="battlefield"${ob.zone === 'battlefield' ? ' selected' : ''}>Forçar Zona 2</option>
-          <option value="quarantine"${ob.zone === 'quarantine' ? ' selected' : ''}>Forçar Zona 3</option></select></label>
+          <option value="">Lugar automático</option>
+          <option value="frontline"${ob.zone === 'frontline' ? ' selected' : ''}>Mover para Urgente</option>
+          <option value="battlefield"${ob.zone === 'battlefield' ? ' selected' : ''}>Mover para a fila</option>
+          <option value="quarantine"${ob.zone === 'quarantine' ? ' selected' : ''}>Guardar para depois</option></select></label>
       </div>
       ${item.isProtestable ? '<button class="btn sm ghost" data-do="protested" type="button">Foi protestado (sair da contagem)</button>' : ''}
       <button class="btn sm danger" data-do="delete" type="button">${icon('trash')}Excluir</button>
@@ -593,20 +594,18 @@ export function openObligationDetail(id) {
       el.querySelector('[data-do=script]').onclick = () => { close(); openScriptSheet(id); };
       el.querySelector('[data-do=edit]').onclick = () => { close(); openObligationWizard(null, id); };
       el.querySelector('[data-do-zone]').onchange = async (e) => {
-        await store.commit({ obligations: [{ ...ob, zone: e.target.value || null }] });
-        toast('Zona atualizada.');
+        await store.commit({ obligations: [{ ...ob, zone: e.target.value || null }] }, { label: `Mudou a zona: ${ob.beneficiary}` });
         close();
       };
       el.querySelector('[data-do=protested]')?.addEventListener('click', async () => {
-        await store.commit({ obligations: [{ ...ob, protested: true }] });
+        await store.commit({ obligations: [{ ...ob, protested: true }] }, { label: `Marcou protestado: ${ob.beneficiary}` });
         close();
-        toast('Marcado como protestado. Quitar remove o nome do cartório.', { tone: 'magenta' });
+        toast('Quitar remove o nome do cartório.', { tone: 'magenta' });
       });
       el.querySelector('[data-do=delete]').onclick = async () => {
         close();
         if (await confirmSheet({ title: 'Excluir?', text: `Remover <b>${esc(ob.beneficiary)}</b> da triagem.`, confirmLabel: 'Excluir', danger: true })) {
-          await store.commit({ removeObligations: [ob.id] });
-          toast('Excluído.');
+          await store.commit({ removeObligations: [ob.id] }, { label: `Excluiu: ${ob.beneficiary}` });
         }
       };
     },
@@ -623,7 +622,7 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
   const profile = store.profile;
   const rate = realHourlyRate(profile);
   openSheet({
-    title: protest ? 'Protesto Segurado' : settle ? 'Quitação com desconto' : 'Registrar pagamento',
+    title: protest ? 'Paguei antes do cartório' : settle ? 'Quitação com desconto' : 'Registrar pagamento',
     body: `<form novalidate>
       <div class="small">${esc(item.ob.beneficiary)}${item.ob.isShared ? ' · sua cota' : ''}${item.installment ? ` · ${esc(item.installment.label)}` : ''}</div>
       ${moneyField('amount', settle ? 'Valor que você vai pagar para quitar tudo' : item.installment ? 'Valor pago (uma parcela já vem preenchida)' : 'Valor pago', settle ? round2(item.updated * (1 - (item.ob.settlementDiscountPercent || 80) / 100)) : item.dueNow, { big: true })}
@@ -671,7 +670,7 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
         const { changes, rescue, fullyPaid } = payObligation(store.state, {
           obligationId: id, profileId: pid, amount, accountId: v.accountId || null, date: v.date || store.today, settle: Boolean(v.settle),
         }, { today: store.today, btcPrice: store.btcPrice() });
-        await store.commit(changes);
+        await store.commit(changes, { label: `Pagamento: ${item.ob.beneficiary} (${brl(amount)})` });
         close();
         haptic([18, 40, 18, 40, 60]);
         const inst = item.installment;
@@ -769,18 +768,37 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
           profileId: pid, direction: v.direction, amount, accountId: v.accountId, category: v.category, note: v.note.trim(),
           date: v.date || store.today, installments: num(v.installments, 1),
         }, { today: store.today, btcPrice: store.btcPrice() });
-        await store.commit(changes);
+        await store.commit(changes, { label: `${v.direction === 'in' ? 'Entrada' : 'Saída'}: ${v.note.trim() || v.category} (${brl(amount)})` });
         close();
         haptic();
-        toast(entry.status === 'scheduled' ? `Agendado para ${dateHuman(entry.date)}.` : 'Lançado.', { tone: 'cyan' });
+        if (entry.status === 'scheduled') toast(`Agendado para ${dateHuman(entry.date)}: entra na Onda nesse dia.`);
       };
     },
   });
 }
 
 export async function removeEntry(id) {
-  if (!await confirmSheet({ title: 'Desfazer lançamento?', text: 'O valor volta para a conta de origem.', confirmLabel: 'Desfazer' })) return;
-  await store.commit(removeLedgerEntry(store.state, id));
+  const action = store.actionForLedger(id);
+  if (action) {
+    const lines = describeAction(action, store.state);
+    const ok = await confirmSheet({
+      title: 'Desfazer esta ação inteira?',
+      text: `<b>${esc(action.label)}</b><br>Tudo o que foi feito junto volta como estava:<ul class="reasons">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
+      confirmLabel: 'Desfazer tudo',
+    });
+    if (!ok) return;
+    await store.undo(action.id);
+    toast('Desfeito. Saldos e dívidas voltaram ao que eram.', { tone: 'cyan' });
+    return;
+  }
+  const e = store.state.ledger.find((x) => x.id === id);
+  if (!await confirmSheet({ title: 'Desfazer lançamento?', text: `${e?.direction === 'in' ? 'A entrada sai' : 'O valor volta'} da conta de origem${e?.obligationId ? ' e a dívida volta a ficar em aberto' : ''}.`, confirmLabel: 'Desfazer' })) return;
+  const changes = removeLedgerEntry(store.state, id);
+  if (e?.obligationId) {
+    const ob = store.state.obligations.find((o) => o.id === e.obligationId);
+    if (ob) changes.obligations = [...(changes.obligations || []), { ...ob, status: 'open', paidAt: null, balance: round2(num(ob.balance) + num(e.amount)) }];
+  }
+  await store.commit(changes);
   toast('Lançamento desfeito.');
 }
 
@@ -834,15 +852,13 @@ export function openAccountWizard(existingId = null) {
         if (t === 'credit_card' && ex && ex.limitTotal !== acc.limitTotal) {
           acc.limitHistory = [...(ex.limitHistory || []), { date: store.today, limitTotal: acc.limitTotal }];
         }
-        await store.commit({ accounts: [acc] });
+        await store.commit({ accounts: [acc] }, { label: `Conta: ${acc.name}` });
         close();
-        toast('Conta salva.', { tone: 'cyan' });
       };
       el.querySelector('[data-del]')?.addEventListener('click', async () => {
         close();
         if (await confirmSheet({ title: 'Excluir conta?', text: 'Os lançamentos ficam no histórico, mas a conta sai do deck.', confirmLabel: 'Excluir', danger: true })) {
-          await store.commit({ removeAccounts: [ex.id] });
-          toast('Conta excluída.');
+          await store.commit({ removeAccounts: [ex.id] }, { label: `Excluiu conta: ${ex.name}` });
         }
       });
     },
@@ -881,7 +897,7 @@ export function openProfileWizard(existingId = null) {
         const changes = { profiles: [p], accounts: [] };
         ensureHousehold(changes);
         if (!ex) changes.accounts.push(normalizeAccount({ id: uid('acc'), profileId: p.id, name: 'Conta Corrente', type: 'checking_cash', balance: parseMoney(v.cash) }));
-        await store.commit(changes, { render: false });
+        await store.commit(changes, { render: false, label: ex ? `Perfil: ${p.name}` : `Novo perfil: ${p.name}` });
         if (!ex) await store.setMeta('activeProfileId', p.id);
         store.onChange();
         close();
@@ -897,7 +913,7 @@ export function openProfileWizard(existingId = null) {
           removeObligations: store.state.obligations.filter((o) => o.profileId === ex.id).map((o) => o.id),
           removeLedger: store.state.ledger.filter((t) => t.profileId === ex.id).map((t) => t.id),
         };
-        await store.commit(changes, { render: false });
+        await store.commit(changes, { render: false, label: `Excluiu o perfil ${ex.name}` });
         await store.setMeta('activeProfileId', store.state.profiles[0]?.id || null);
         store.onChange();
         toast('Perfil excluído.');
@@ -912,14 +928,14 @@ export function openAporteSheet() {
   const d = store.derive();
   const price = store.btcPrice();
   if (d.eras.lock.locked) {
-    toast('Trava de Soberania fechada: resolva a Linha de Frente e a Linha d\'Água primeiro.', { tone: 'magenta' });
+    toast('Trava de segurança: primeiro resolva as contas urgentes e as essenciais dos próximos 15 dias.', { tone: 'magenta' });
     return;
   }
   const accounts = store.state.accounts.filter((a) => a.profileId === store.pid && isRealLiquidity(a));
   openSheet({
     title: 'Registrar aporte em BTC',
     body: `<form novalidate>
-      <p class="small">Excedente real disponível: <b class="c-cyan">${brl(d.eras.lock.excess)}</b> (caixa − Linha d'Água − micro-escudo).</p>
+      <p class="small">Excedente real disponível: <b class="c-cyan">${brl(d.eras.lock.excess)}</b> (dinheiro − contas essenciais − reserva).</p>
       ${moneyField('amount', 'Valor em reais', '', { big: true })}
       ${moneyField('price', 'Preço do BTC (R$)', price || '', { hint: 'Cotação ao vivo; ajuste para o preço que você pagou.' })}
       ${accounts.length ? accountSelect('accountId', accounts, accounts[0].id, { label: 'Saiu de qual conta' }) : ''}
@@ -949,7 +965,7 @@ export function openAporteSheet() {
           const { changes: c } = addLedgerEntry(store.state, { profileId: store.pid, direction: 'out', amount, accountId: v.accountId, category: 'aporte BTC', note: `Aporte ${s.toLocaleString('pt-BR')} sats` }, { today: store.today });
           Object.assign(changes, { ledger: c.ledger, accounts: c.accounts });
         }
-        await store.commit(changes);
+        await store.commit(changes, { label: `Aporte: ${s.toLocaleString('pt-BR')} sats` });
         close();
         toast(`+${s.toLocaleString('pt-BR')} sats rumo a 1 BTC.`, { tone: 'cyan', iconName: 'btc' });
       };
@@ -969,9 +985,8 @@ export function openSatsUpdateSheet() {
       const form = el.querySelector('form');
       form.onsubmit = async (e) => {
         e.preventDefault();
-        await store.commit({ profiles: [{ ...profile, accumulatedSats: Math.max(0, Math.floor(num(form.sats.value))) }] });
+        await store.commit({ profiles: [{ ...profile, accumulatedSats: Math.max(0, Math.floor(num(form.sats.value))) }] }, { label: 'Atualizou sats' });
         close();
-        toast('Placar atualizado.', { tone: 'cyan' });
       };
     },
   });

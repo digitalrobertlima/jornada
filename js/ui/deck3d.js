@@ -16,7 +16,7 @@ function cardFront(a) {
   switch (a.type) {
     case 'checking_cash':
       main = `<div class="val cyan num">${brl(a.balance)}</div>`;
-      sub = 'Liquidez real · conta para a Linha d\'Água';
+      sub = 'Dinheiro de verdade · paga as contas essenciais';
       break;
     case 'benefit_card':
       main = `<div class="val num">${brl(a.balance)}</div>`;
@@ -207,7 +207,7 @@ export function renderTotem(item, { maxValue, order, isTarget, rate }) {
       aria-label="${esc(item.ob.beneficiary)}: ${brl(item.updated)}${late ? `, atrasada há ${item.late} dias` : ''}">
     <div class="stage" data-totem="${esc(item.id)}" data-hb="${h.hb}" data-ht="${h.ht}"${seg ? ` data-paid="${seg.paidBlocks}"` : ''}>
       <span class="order">#${order}</span>
-      <span class="badges">${item.quickWin ? '<span class="pill cyan">Quick Win</span>' : ''}${status}</span>
+      <span class="badges">${item.quickWin ? '<span class="pill cyan">Vitória rápida</span>' : ''}${status}</span>
       ${seg ? seg.html : totemSceneHTML(h)}
     </div>
     <div class="cap">

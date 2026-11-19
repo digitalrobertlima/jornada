@@ -47,13 +47,13 @@ export function renderBattle(d) {
     </div>
 
     <section class="card">
-      <div class="zone-head"><span class="zone-num z1">1</span><div class="grow"><h2 style="font-size:15px">Linha de Frente</h2>
-        <div class="tiny">Contas vitais e boletos que podem ir a cartório. Isso vem antes de tudo.</div></div></div>
-      <div style="margin-top:6px">${front || '<div class="empty">Nada na Linha de Frente. Cadastre aluguel, luz, água, transporte e boletos com risco de protesto.</div>'}</div>
+      <div class="zone-head"><span class="zone-num z1">1</span><div class="grow"><h2 style="font-size:15px">Urgente</h2>
+        <div class="tiny">Contas essenciais (casa, comida, transporte, trabalho) e boletos que podem ir a cartório. Vêm antes de tudo.</div></div></div>
+      <div style="margin-top:6px">${front || '<div class="empty">Nada urgente. Cadastre aluguel, luz, água, transporte e boletos com risco de protesto.</div>'}</div>
     </section>
 
     <section class="card">
-      <div class="zone-head"><span class="zone-num z2">2</span><div class="grow"><h2 style="font-size:15px">Campo de Batalha</h2>
+      <div class="zone-head"><span class="zone-num z2">2</span><div class="grow"><h2 style="font-size:15px">Dívidas, em ordem de ataque</h2>
         <div class="tiny">Atrasadas no topo (rodam juros), depois o que vence em até 7 dias. O resto segue a data e a Bola de Neve.</div></div></div>
       ${shrinking.map((i) => `<div class="alert" style="margin-top:12px">${icon('alert')}<div><b>${esc(i.ob.beneficiary)}</b> — ${esc(i.alerts.find((a) => a.kind === 'limitShrinking').text)}</div></div>`).join('')}
       ${tri.battlefield.length ? `<div class="row between small" style="margin-top:12px"><span>Total: <b class="num">${brl(bfTotal)}</b></span>
@@ -66,7 +66,7 @@ export function renderBattle(d) {
     <details class="card dome"${eras.currentEra >= 3 ? ' open' : ''}>
       <summary>
         <span class="dome-icon">${icon('dome')}</span>
-        <span class="grow"><b>Domo de Quarentena</b><br><span class="tiny">${tri.quarantine.length
+        <span class="grow"><b>Dívidas antigas (guardadas)</b><br><span class="tiny">${tri.quarantine.length
     ? `${tri.quarantine.length} dívida(s) antiga(s) selada(s) até a Era III. Fora do fluxo diário.`
     : 'Vazio. Dívidas antigas estouradas por juros ficam isoladas aqui.'}</span></span>
         ${icon('chev', 'chev')}

@@ -18,6 +18,7 @@ import {
   openEntrySheet, removeEntry, openAccountWizard, openProfileWizard, openAporteSheet, openSatsUpdateSheet,
 } from './ui/wizards.js';
 import { openSimulator } from './ui/simulator.js';
+import { openEssentials, openVictories, openEntry } from './ui/sheets.js';
 import { openSettings, clearAll } from './ui/settings.js';
 
 const view = document.getElementById('view');
@@ -41,7 +42,7 @@ function renderHeader(d) {
   }
   const era = ERAS[d.eras.currentEra - 1];
   chip.hidden = false;
-  chip.textContent = `Era ${era.roman}`;
+  chip.textContent = `Fase ${d.eras.currentEra}`;
   chip.title = era.name;
   sw.innerHTML = store.state.profiles.map((p) => `<button type="button" class="avatar" style="--hue:${p.hue}" data-profile="${esc(p.id)}"
       aria-pressed="${p.id === store.pid}" aria-label="Perfil ${esc(p.name)}" title="${esc(p.name)}">${esc(p.name.trim().charAt(0).toUpperCase() || '?')}</button>`).join('')
@@ -89,6 +90,12 @@ async function onStateChange() {
 }
 
 store.onChange = () => { onStateChange(); };
+store.onAction = (action) => {
+  toast(`Feito: ${esc(action.label)}`, {
+    tone: 'cyan', timeout: 7000,
+    action: { label: 'Desfazer', onClick: async () => { await store.undo(action.id); toast('Desfeito. Tudo voltou ao que era.'); } },
+  });
+};
 
 function setTab(tab) {
   if (!TABS.includes(tab)) return;
@@ -174,8 +181,8 @@ async function afterReload() {
 
 const actions = {
   goto: (el) => setTab(el.dataset.tab),
-  caiu: () => openSimulator(),
-  pay: (el) => openPaySheet(el.dataset.id, { protest: el.dataset.protest === '1' }),
+  caiu: (el) => openSimulator({ debtId: el.dataset.debt || null }),
+  pay: (el) => openPaySheet(el.dataset.id, { protest: el.dataset.protest === '1', settle: el.dataset.settle === '1' }),
   script: async (el) => {
     openScriptSheet(el.dataset.id);
   },
@@ -183,6 +190,9 @@ const actions = {
   'obligation-open': (el) => openObligationDetail(el.dataset.id),
   'entry-new': (el) => openEntrySheet({ dir: el.dataset.dir || 'out', accountId: el.dataset.account || null }),
   'entry-del': (el) => removeEntry(el.dataset.id),
+  'entry-open': (el) => openEntry(el.dataset.id),
+  essentials: () => openEssentials(),
+  victories: () => openVictories(),
   'account-new': () => openAccountWizard(),
   'account-edit': (el) => openAccountWizard(el.dataset.id),
   'profile-new': () => openProfileWizard(),

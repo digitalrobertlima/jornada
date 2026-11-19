@@ -11,17 +11,21 @@ export function esc(s) {
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-export function toast(message, { tone = '', iconName = tone === 'magenta' ? 'alert' : 'check', timeout = 3800 } = {}) {
+export function toast(message, { tone = '', iconName = tone === 'magenta' ? 'alert' : 'check', timeout = 3800, action = null } = {}) {
   const zone = document.getElementById('toasts');
   if (!zone) return;
+  zone.querySelectorAll('.toast').forEach((t) => t.remove()); // um aviso por vez
   const el = document.createElement('div');
   el.className = `toast ${tone}`;
-  el.innerHTML = `${icon(iconName)}<div>${message}</div>`;
+  el.innerHTML = `${icon(iconName)}<div class="grow">${message}</div>${action ? `<button type="button" class="btn sm">${esc(action.label)}</button>` : ''}`;
+  if (action) {
+    el.querySelector('button').onclick = () => { el.remove(); action.onClick(); };
+  }
   zone.appendChild(el);
   setTimeout(() => {
     el.style.transition = 'opacity .3s, transform .3s';
     el.style.opacity = '0';
-    el.style.transform = 'translateY(-10px)';
+    el.style.transform = 'translateY(10px)';
     setTimeout(() => el.remove(), 320);
   }, timeout);
 }
@@ -33,6 +37,7 @@ let openSheets = 0;
  * @param {{title: string, body: string, onMount?: (el: HTMLElement, close: Function) => void, onClose?: Function}} opts
  */
 export function openSheet({ title, body, onMount, onClose }) {
+  document.querySelectorAll('#toasts .toast').forEach((t) => t.remove());
   const backdrop = document.createElement('div');
   backdrop.className = 'sheet-backdrop';
   const sheet = document.createElement('section');

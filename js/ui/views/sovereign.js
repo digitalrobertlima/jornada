@@ -67,8 +67,8 @@ export function renderSovereign(d, store) {
     <section class="card lock-card ${lock.locked ? 'locked' : 'open'}">
       <div class="row">
         <span class="lock-icon">${icon(lock.locked ? 'lock' : 'unlock')}</span>
-        <div class="grow"><b>Trava de Soberania ${lock.locked ? 'fechada' : 'aberta'}</b>
-          <div class="tiny">${lock.locked ? 'Nenhum real vai para cripto enquanto houver Linha de Frente aberta ou Linha d\'Água furada.' : `Excedente real disponível: ${brl(lock.excess)}`}</div></div>
+        <div class="grow"><b>Trava de segurança ${lock.locked ? 'fechada' : 'aberta'}</b>
+          <div class="tiny">${lock.locked ? 'Investir em cripto só depois que o essencial e as dívidas urgentes estiverem resolvidos.' : `Excedente real disponível: ${brl(lock.excess)}`}</div></div>
       </div>
       ${lock.locked ? `<ul class="reasons">${lock.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       <div class="row wrap" style="margin-top:12px;gap:8px">

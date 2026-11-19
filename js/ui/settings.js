@@ -9,7 +9,7 @@ import { buildDemoScenario } from '../db/demoScenario.js';
 import { normalizeHousehold } from '../core/model.js';
 import { openProfileWizard } from './wizards.js';
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.4.0';
 
 function download(filename, text) {
   const blob = new Blob([text], { type: 'application/json' });
@@ -117,7 +117,15 @@ export function openSettings({ onReload, refreshMarket }) {
       </section>
 
       <section class="card tight">
-        <span class="eyebrow">Soberania de dados</span>
+        <span class="eyebrow">Últimas ações</span>
+        <p class="tiny" style="margin:4px 0 8px">Desfazer volta tudo o que foi feito junto: saldos, dívidas, parcelas e horas.</p>
+        ${(m.journal || []).slice(0, 8).map((a) => `<div class="row between small" style="padding:6px 0;border-top:1px solid var(--border)">
+          <span class="grow">${esc(a.label)}<br><span class="tiny">${new Date(a.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span></span>
+          <button class="btn sm ghost" type="button" data-undo="${esc(a.id)}">Desfazer</button></div>`).join('') || '<div class="tiny">Nenhuma ação ainda.</div>'}
+      </section>
+
+      <section class="card tight">
+        <span class="eyebrow">Seus dados</span>
         <p class="small" style="margin:6px 0 10px">Tudo fica só neste aparelho. Se trocar de celular ou limpar o navegador, só o backup salva seus dados. Último backup: <b>${last}</b>.</p>
         <div class="grid-2">
           <button class="btn sm" data-s="export">${icon('download')}Exportar backup</button>
@@ -137,6 +145,11 @@ export function openSettings({ onReload, refreshMarket }) {
     </div>`,
     onMount(el, close) {
       const on = (k, fn) => el.querySelector(`[data-s="${k}"]`)?.addEventListener('click', fn);
+      el.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', async () => {
+        await store.undo(b.dataset.undo);
+        close();
+        toast('Desfeito. Tudo voltou ao que era.', { tone: 'cyan' });
+      }));
       on('profile', () => { close(); openProfileWizard(store.pid); });
       on('profile-new', () => { close(); openProfileWizard(); });
       on('export', () => exportBackup());
@@ -146,7 +159,7 @@ export function openSettings({ onReload, refreshMarket }) {
       on('refresh', async () => { await refreshMarket(true); toast('Cotações atualizadas.'); });
       el.querySelector('#house').onsubmit = async (e) => {
         e.preventDefault();
-        await store.commit({ household: [normalizeHousehold({ ...store.state.household, name: e.target.name.value.trim() || 'Minha Casa' })] });
+        await store.commit({ household: [normalizeHousehold({ ...store.state.household, name: e.target.name.value.trim() || 'Minha Casa' })] }, { label: 'Renomeou a casa' });
         toast('Casa renomeada.');
       };
       el.querySelector('[name=live]').onchange = async (e) => {

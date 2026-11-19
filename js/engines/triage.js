@@ -59,10 +59,10 @@ export function classify(ob, today) {
   const multiplier = principal > 0 ? num(ob.balance) / principal : 1;
 
   if (ob.isLegacy || ob.type === 'legacy_debt') {
-    return { zone: 'quarantine', reason: multiplier >= 1.2 ? `Juros compostos: ${multiplier.toFixed(1).replace('.', ',')}× o valor original` : 'Dívida antiga selada' };
+    return { zone: 'quarantine', reason: multiplier >= 1.2 ? `Juros compostos: ${multiplier.toFixed(1).replace('.', ',')}× o valor original` : 'Dívida antiga, guardada para depois' };
   }
   if (ob.type === 'vital_fixed' || ob.isWorkTool) {
-    return { zone: 'frontline', reason: `Conta vital · ${VITAL_KINDS[ob.vitalKind] || (ob.isWorkTool ? 'Ferramenta de trabalho' : 'Essencial')}` };
+    return { zone: 'frontline', reason: `Essencial · ${VITAL_KINDS[ob.vitalKind] || (ob.isWorkTool ? 'Ferramenta de trabalho' : 'conta da casa')}` };
   }
   if (rules.canProtest && !ob.protested) {
     if (!rules.protestDeadline || rules.protestDeadline >= today) {
@@ -78,11 +78,11 @@ export function classify(ob, today) {
     return { zone: 'quarantine', reason: `Atrasada há ${late} dias` };
   }
   if (ob.type === 'personal_debt' || ob.bucket === 'familia') {
-    return { zone: 'battlefield', reason: 'Quick Win · alívio imediato', quickWin: true };
+    return { zone: 'battlefield', reason: 'Dívida com pessoa · vitória rápida', quickWin: true };
   }
-  if (ob.type === 'card_debt') return { zone: 'battlefield', reason: 'Cartão ativo · Bola de Neve' };
+  if (ob.type === 'card_debt') return { zone: 'battlefield', reason: 'Cartão de crédito' };
   if (ob.protested) return { zone: 'battlefield', reason: 'Já protestado — quitar remove do cartório' };
-  return { zone: 'battlefield', reason: 'Bola de Neve' };
+  return { zone: 'battlefield', reason: 'Na fila de pagamento' };
 }
 
 /** Item de triagem com todas as métricas que a interface precisa. */

@@ -10,6 +10,10 @@ import {
 import { evaluateEras } from './engines/eraMachine.js';
 import { satsScore } from './engines/satsYield.js';
 import { realHourlyRate } from './engines/lifeHours.js';
+import { newAction, recordInverse, buildUndo } from './engines/journal.js';
+import { uid } from './core/util.js';
+
+const JOURNAL_MAX = 60;
 
 // Referência embutida, usada só até a primeira cotação ao vivo chegar (ou sem internet no 1º uso).
 export const FALLBACK_MARKET = { btc: 420000, cdi: 14.15, label: 'referência offline (nov/2026)' };
@@ -53,6 +57,7 @@ export const store = {
     this.meta.liveMarket = await vault.getMeta('liveMarket', true);
     this.meta.manual = await vault.getMeta('manual', {});
     this.meta.lastBackup = await vault.getMeta('lastBackup', null);
+    this.meta.journal = await vault.getMeta('journal', []);
     if (!this.state.profiles.some((p) => p.id === this.meta.activeProfileId)) {
       this.meta.activeProfileId = this.state.profiles[0]?.id || null;
     }
@@ -106,10 +111,44 @@ export const store = {
     this.version++;
   },
 
-  async commit(changes, { render = true } = {}) {
+  /**
+   * Grava mudanças. Com `label`, a ação entra no diário e pode ser desfeita por inteiro.
+   * Com `actionId`, junta-se a uma ação já aberta (ex.: entrada + pagamento do "Entrou dinheiro").
+   */
+  async commit(changes, { render = true, label = null, actionId = null } = {}) {
+    let action = null;
+    if (label || actionId) {
+      const journal = this.meta.journal || [];
+      action = actionId ? journal.find((a) => a.id === actionId) : null;
+      if (!action) action = newAction(actionId || uid('act'), label || 'Ação');
+      recordInverse(action, this.state, changes);
+      this.meta.journal = [action, ...journal.filter((a) => a.id !== action.id)].slice(0, JOURNAL_MAX);
+    }
     await vault.commit(changes);
     this.merge(changes);
+    if (action) await vault.setMeta('journal', this.meta.journal);
     if (render) this.onChange();
+    if (action && !actionId) this.onAction(action);
+    return action;
+  },
+
+  onAction: () => {},
+
+  /** Ação do diário que criou um lançamento (para o "desfazer" do fluxo diário). */
+  actionForLedger(entryId) {
+    return (this.meta.journal || []).find((a) => a.created.ledger.includes(entryId)) || null;
+  },
+
+  async undo(actionId) {
+    const action = (this.meta.journal || []).find((a) => a.id === actionId);
+    if (!action) throw new Error('Esta ação já foi desfeita ou é antiga demais.');
+    const changes = buildUndo(action, this.state);
+    this.meta.journal = this.meta.journal.filter((a) => a.id !== actionId);
+    await vault.commit(changes);
+    this.merge(changes);
+    await vault.setMeta('journal', this.meta.journal);
+    this.onChange();
+    return action;
   },
 
   async setMeta(key, value, { render = false } = {}) {
@@ -123,13 +162,15 @@ export const store = {
     await vault.replaceAll(state, meta);
     this.state = state;
     Object.assign(this.meta, meta);
+    this.meta.journal = [];
+    await vault.setMeta('journal', []);
     this.version++;
   },
 
   async clearAll() {
     await vault.clearAll();
     this.state = { household: null, profiles: [], accounts: [], obligations: [], ledger: [] };
-    this.meta = { activeProfileId: null, demo: false, market: this.meta.market, liveMarket: true, manual: {} };
+    this.meta = { activeProfileId: null, demo: false, market: this.meta.market, liveMarket: true, manual: {}, journal: [] };
     await vault.setMeta('market', this.meta.market);
     this.version++;
   },
