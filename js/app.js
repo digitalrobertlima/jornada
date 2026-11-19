@@ -22,6 +22,9 @@ import { openEssentials, openVictories, openEntry } from './ui/sheets.js';
 import { openForecastSheet, openForecastDetail, openPlanSheet } from './ui/forecast.js';
 import { schedulePush, renderCloudButton, syncNow, connectGoogle, cloudConnected, setReloadHook } from './ui/cloud.js';
 import { openSettings, clearAll } from './ui/settings.js';
+import { initAssistant, openAssistant, assistantOpen, assistantNote } from './ui/assistant.js';
+import { openRecipesSheet, openRecipeCreator, openPotMove, openPanelDetail, reminderDone } from './recipes/ui.js';
+import { applyRules, dueReminders } from './recipes/model.js';
 
 const view = document.getElementById('view');
 const TABS = ['hud', 'wallet', 'battle', 'vault'];
@@ -93,8 +96,16 @@ async function onStateChange() {
 }
 
 store.onChange = () => { onStateChange(); schedulePush(); };
-store.onAction = (action) => {
-  toast(`Feito: ${esc(action.label)}`, {
+store.transform = (state, changes) => applyRules(state, changes);
+store.onAction = (action, notes = []) => {
+  const extra = notes.length ? `<br><span class="tiny">${notes.map((n) => `Regra: ${esc(brlText(n.amount))} no pote ${esc(n.pot)}`).join(' · ')}</span>` : '';
+  if (assistantOpen()) {
+    // no assistente o cartão já mostra "Feito" e "Desfazer"; só avisamos as regras automáticas
+    if (notes.length) assistantNote(notes.map((n) => `Regra automática: separei ${brlText(n.amount)} no pote ${n.pot}.`).join('\n'));
+    return;
+  }
+  if (!action) { if (extra) toast(extra.replace('<br>', ''), { tone: 'cyan' }); return; }
+  toast(`Feito: ${esc(action.label)}${extra}`, {
     tone: 'cyan', timeout: 7000,
     action: { label: 'Desfazer', onClick: async () => { await store.undo(action.id); toast('Desfeito. Tudo voltou ao que era.'); } },
   });
@@ -206,7 +217,23 @@ const actions = {
   'market-refresh': () => refreshMarket(true),
   aporte: () => openAporteSheet(),
   'sats-update': () => openSatsUpdateSheet(),
+  assistant: () => openAssistant(),
+  recipes: () => openRecipesSheet(),
+  'recipe-new': () => openRecipeCreator(),
+  'pot-in': (el) => openPotMove(el.dataset.id, 'in'),
+  'pot-out': (el) => openPotMove(el.dataset.id, 'out'),
+  'panel-open': (el) => openPanelDetail(el.dataset.id),
+  'reminder-done': (el) => reminderDone(el.dataset.id, el.dataset.key),
 };
+
+const brlText = (v) => `R$ ${Number(v).toFixed(2).replace('.', ',')}`;
+
+initAssistant({ goto: (tab) => setTab(tab), openPlan: () => openPlanSheet(), openRecipes: () => openRecipesSheet() });
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  window.__installPrompt = e;
+});
 
 document.addEventListener('click', async (e) => {
   const tab = e.target.closest('.bottom-nav [data-tab]');
@@ -262,6 +289,22 @@ document.addEventListener('visibilitychange', async () => {
 });
 window.addEventListener('online', () => refreshMarket());
 
+// ---------------------------------------------------------------- lembretes
+
+/** Ao abrir o app: notificação do sistema para lembretes do dia (se a pessoa liberou). */
+async function notifyDueReminders() {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted' || !store.pid) return;
+    const due = dueReminders(store.state, store.pid, store.today);
+    const seen = new Set(store.meta.notified || []);
+    const fresh = due.filter((x) => !seen.has(`${x.recipe.id}@${x.key}`));
+    if (!fresh.length) return;
+    const reg = await navigator.serviceWorker?.ready;
+    for (const x of fresh) await reg?.showNotification('Jornada · lembrete', { body: x.text, tag: `${x.recipe.id}@${x.key}`, icon: './assets/icons/icon-192.png' });
+    await store.setMeta('notified', [...seen, ...fresh.map((x) => `${x.recipe.id}@${x.key}`)].slice(-60));
+  } catch { /* opcional */ }
+}
+
 // ---------------------------------------------------------------- service worker
 
 function registerSW() {
@@ -293,6 +336,15 @@ function registerSW() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
+  // a IA pediu modo isolado antes: abre sempre assim (o service worker põe os cabeçalhos)
+  try {
+    const params0 = new URLSearchParams(location.search);
+    if (localStorage.getItem('jornada-isolar') === '1' && params0.get('isolar') !== '1' && navigator.serviceWorker?.controller) {
+      params0.set('isolar', '1');
+      location.replace(`./?${params0}${location.hash}`);
+      return;
+    }
+  } catch { /* segue normal */ }
   try {
     await store.load();
   } catch (err) {
@@ -305,6 +357,8 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   if (params.get('action') === 'caiu' && store.state.profiles.length) openSimulator();
   if (params.get('action') === 'lancar' && store.state.profiles.length) openEntrySheet({ dir: 'out' });
+  if (params.get('action') === 'assistente' && store.state.profiles.length) openAssistant();
+  notifyDueReminders();
   registerSW();
 }
 

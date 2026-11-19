@@ -67,3 +67,25 @@ Ao publicar uma nova versão, troque `VERSION` em `sw.js` para os aparelhos rece
 - A previsão **não vira saldo sozinha**: só quando você toca em **"Caiu!"** (com o valor real). Dá para desfazer.
 - **Como distribuir** cruza as entradas previstas com as contas que vencem e sugere, em ordem: essenciais → cartório → atrasadas → reserva → adiantar dívidas. Segura o dinheiro de hoje para o aluguel que vence antes do próximo pagamento, usa o vale-alimentação só para conta de alimentação e avisa quando uma conta vence **antes** do dinheiro chegar (com roteiro para pedir nova data).
 - Todo lançamento de entrada pergunta "caiu como Pix (livre) ou travado?"; cartões benefício agora têm finalidade.
+
+## Assistente 100% offline + peças (v2.0.0)
+
+**Assistente** (botão central da barra de baixo, ou atalho do ícone instalado): a pessoa conversa e ele usa o app sozinho.
+
+- **Modo básico** (qualquer celular, na hora, sem IA): entende frases como "caiu 840 do adiantamento", "paguei a luz", "gastei 30 no uber", "vai cair 1600 de salário dia 5", "cria um pote de 300 pro gás", "me lembra de ligar pro banco sexta", "quanto gastei de uber?", "como distribuir o salário?", "desfaz".
+- **IA no aparelho** (opcional): Gemma 4 E2B via LiteRT-LM (WebGPU). Baixa ~2 GB uma vez para o armazenamento privado do navegador (OPFS), com pausa/retomada; o motor vem do CDN na primeira vez e o service worker guarda. Depois, conversa sem internet e nada sai do celular. Requisitos: Chrome atualizado no Android 12+ (GPU Qualcomm/ARM) ou iOS 26+, ~2,2 GB livres; 6 GB+ de RAM recomendado. Se o motor exigir isolamento (SharedArrayBuffer), o app oferece "Reabrir no modo da IA" e o service worker aplica COOP/COEP (`?isolar=1`).
+- **Segurança**: o modelo não executa nada. Ele pede ferramentas (`js/agent/tools.js`) que usam as mesmas funções dos botões; leitura devolve texto, escrita devolve **prévia** e só grava quando a pessoa toca em Confirmar. Tudo vai para o histórico (desfazer). Números vêm dos motores, nunca do modelo; contas usam a fórmula segura (sem `eval`). Prévias de pagamento avisam quando o dinheiro das contas essenciais ficaria descoberto.
+
+**Peças** (`js/recipes/`): funções novas montadas sem programar, pela pessoa (Ajustes → Peças) ou pelo assistente.
+
+| Peça | Faz |
+|---|---|
+| Categoria | tipo novo de gasto/entrada no lançamento rápido |
+| Pote | separa dinheiro para um objetivo, com meta e prazo (o dinheiro continua na conta) |
+| Regra | quando entrar um dinheiro (por nome/categoria/valor mínimo), separa R$ ou % num pote — no mesmo registro, desfazível |
+| Lembrete | numa data, todo mês ou N dias antes de uma conta vencer; aparece na tela inicial e, com app instalado e notificação liberada, avisa pelo celular (Periodic Background Sync, quando o aparelho permite) |
+| Painel | número na tela inicial (ex.: "Uber no mês"), com filtro, período e fórmula segura (`total / hora` = horas de trabalho) |
+
+Peças são dados: entram no backup e na sincronização, têm desfazer e podem ser desligadas. Quando nada resolve, o assistente anota um **pedido de função** (Ajustes → Pedidos de função → Enviar abre uma issue no GitHub com o texto, nenhum dado pessoal).
+
+Testes: `npm test` (unidade, sem navegador). O caminho da IA é testado com um modelo simulado (`window.__JORNADA_FAKE_LLM__`); o modelo real só roda no celular.

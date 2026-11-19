@@ -5,8 +5,8 @@
 import { SCHEMA_VERSION, normalizeState } from '../core/model.js';
 
 const DB_NAME = 'jornada-vault';
-const DB_VERSION = 2;
-export const STORES = ['household', 'profiles', 'accounts', 'obligations', 'ledger'];
+const DB_VERSION = 3;
+export const STORES = ['household', 'profiles', 'accounts', 'obligations', 'ledger', 'recipes'];
 const META = 'meta';
 
 function req(r) {
@@ -74,6 +74,7 @@ export class Vault {
       accounts: out.accounts,
       obligations: out.obligations,
       ledger: out.ledger,
+      recipes: out.recipes,
     };
   }
 
@@ -86,7 +87,7 @@ export class Vault {
     }
     const removals = {
       ledger: changes.removeLedger, obligations: changes.removeObligations,
-      accounts: changes.removeAccounts, profiles: changes.removeProfiles,
+      accounts: changes.removeAccounts, profiles: changes.removeProfiles, recipes: changes.removeRecipes,
     };
     for (const [name, ids] of Object.entries(removals)) {
       for (const id of ids || []) tx.objectStore(name).delete(id);
@@ -106,7 +107,7 @@ export class Vault {
     const tx = db.transaction([...STORES, META], 'readwrite');
     for (const name of STORES) tx.objectStore(name).clear();
     if (state.household) tx.objectStore('household').put({ ...state.household, id: 'main' });
-    for (const name of ['profiles', 'accounts', 'obligations', 'ledger']) {
+    for (const name of ['profiles', 'accounts', 'obligations', 'ledger', 'recipes']) {
       for (const rec of state[name] || []) tx.objectStore(name).put(rec);
     }
     for (const [key, value] of Object.entries(meta)) tx.objectStore(META).put({ key, value });

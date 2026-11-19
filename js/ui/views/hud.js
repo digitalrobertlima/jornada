@@ -7,6 +7,7 @@ import { brl, lifeTime, dateHuman } from '../../core/format.js';
 import { minutesToWorkdays } from '../../engines/lifeHours.js';
 import { ERAS } from '../../engines/eraMachine.js';
 import { buildGuide, closedDebts } from '../../engines/guide.js';
+import { recipesHUDHTML } from '../../recipes/ui.js';
 
 export function deadlineOf(item) {
   if (item.isProtestable && item.ob.rules?.protestDeadline) return { date: item.ob.rules.protestDeadline, kind: 'cartório' };
@@ -103,6 +104,7 @@ export function renderHUD(d, store) {
   const workdays = minutesToWorkdays(profile.rescuedLifeMinutes, profile);
   const steps = buildGuide(d, { state: store.state, today: d.today });
   const closed = closedDebts(store.state, d.pid);
+  const pieces = recipesHUDHTML(d);
 
   const demo = store.meta.demo
     ? `<div class="demo-banner"><span>${icon('info')} Modo demonstração — dados fictícios</span><button class="btn sm ghost" data-act="demo-clear">Limpar tudo</button></div>` : '';
@@ -130,6 +132,7 @@ export function renderHUD(d, store) {
     </button>
 
     ${steps.length ? guideHero(steps[0]) : ''}
+    ${pieces.reminders}
 
     <div class="grid-2">
       <button type="button" class="card tight hero-cash tap" data-act="goto" data-tab="wallet">
@@ -161,6 +164,11 @@ export function renderHUD(d, store) {
       ${steps.length > 3 ? `<details class="more"><summary class="small">Ver mais ${steps.length - 3} ${steps.length - 3 === 1 ? 'passo' : 'passos'}</summary>
         <div class="stack" style="gap:0">${steps.slice(3).map((s, k) => guideRow(s, k + 4)).join('')}</div></details>` : ''}
     </section>` : ''}
+
+    ${pieces.grid}
+
+    <button type="button" class="card tight row as-invite tap" data-act="assistant" style="text-align:left;color:inherit;width:100%">
+      ${icon('chat', 'c-cyan')}<span class="grow"><b class="small">Fale com o assistente</b><span class="tiny" style="display:block">"caiu 840 do adiantamento", "paguei a luz", "cria um pote pro gás"…</span></span>${icon('chev', 'chev-r')}</button>
 
     ${coverageHTML}
 

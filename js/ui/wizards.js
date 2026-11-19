@@ -18,6 +18,7 @@ import { buildItem, memberIds } from '../engines/triage.js';
 import { negotiationScript } from '../engines/scripts.js';
 import { describeAction } from '../engines/journal.js';
 import { cloudConfigured, connectGoogle } from './cloud.js';
+import { customCategories } from '../recipes/model.js';
 import { moneyToMinutes, realHourlyRate } from '../engines/lifeHours.js';
 import { brlToSats } from '../engines/satsYield.js';
 import { buildDemoScenario } from '../db/demoScenario.js';
@@ -756,7 +757,7 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
       const sync = () => {
         const v = formData(form);
         const acc = accounts.find((a) => a.id === v.accountId);
-        const cats = v.direction === 'in' ? CATEGORIES_IN : CATEGORIES_OUT;
+        const cats = [...(v.direction === 'in' ? CATEGORIES_IN : CATEGORIES_OUT), ...customCategories(store.state, pid, v.direction === 'in' ? 'entrada' : 'saida')];
         const sel = form.category;
         if (sel.dataset.dir !== v.direction) {
           sel.innerHTML = cats.map((c) => `<option>${c}</option>`).join('');

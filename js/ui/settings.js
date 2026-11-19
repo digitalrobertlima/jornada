@@ -9,8 +9,10 @@ import { buildDemoScenario } from '../db/demoScenario.js';
 import { normalizeHousehold } from '../core/model.js';
 import { openProfileWizard } from './wizards.js';
 import { cloudSectionHTML, bindCloudSection } from './cloud.js';
+import { aiSettingsHTML, bindAISettings } from './assistant.js';
+import { openRecipesSheet, openRecipeCreator } from '../recipes/ui.js';
 
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '2.0.0';
 
 function download(filename, text) {
   const blob = new Blob([text], { type: 'application/json' });
@@ -105,6 +107,68 @@ export async function clearAll(onDone) {
   onDone?.();
 }
 
+// ---------------------------------------------------------------- pedidos de função
+
+function requestsHTML() {
+  const list = store.meta.requests || [];
+  if (!list.length) return '';
+  return `<section class="card tight"><span class="eyebrow">Pedidos de função</span>
+    <p class="tiny" style="margin:4px 0 8px">Coisas que você pediu e o app ainda não faz. Enviar é opcional: vai só o texto do pedido, nenhum dado seu.</p>
+    ${list.slice(0, 8).map((r) => `<div class="row between small" style="padding:6px 0;border-top:1px solid var(--border)">
+      <span class="grow">${esc(r.text)}<br><span class="tiny">${r.sent ? 'enviado' : 'não enviado'}</span></span>
+      <span class="row" style="gap:6px"><button class="btn sm" type="button" data-req-send="${esc(r.id)}">Enviar</button>
+      <button class="btn sm ghost" type="button" data-req-del="${esc(r.id)}" aria-label="Apagar">${icon('trash')}</button></span></div>`).join('')}
+  </section>`;
+}
+
+function bindRequests(el, close) {
+  el.querySelectorAll('[data-req-send]').forEach((b) => b.addEventListener('click', async () => {
+    const list = store.meta.requests || [];
+    const r = list.find((x) => x.id === b.dataset.reqSend);
+    if (!r) return;
+    const body = `Pedido de função feito pelo assistente do Jornada:\n\n${r.text}\n\n(versão ${APP_VERSION})`;
+    const url = `https://github.com/digitalrobertlima/jornada/issues/new?title=${encodeURIComponent(`Pedido: ${r.text.slice(0, 60)}`)}&body=${encodeURIComponent(body)}&labels=pedido`;
+    try {
+      if (navigator.share) await navigator.share({ title: 'Pedido de função · Jornada', text: body, url: 'https://github.com/digitalrobertlima/jornada/issues' });
+      else window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      window.open(url, '_blank', 'noopener');
+    }
+    await store.setMeta('requests', list.map((x) => (x.id === r.id ? { ...x, sent: true } : x)));
+    close();
+  }));
+  el.querySelectorAll('[data-req-del]').forEach((b) => b.addEventListener('click', async () => {
+    await store.setMeta('requests', (store.meta.requests || []).filter((x) => x.id !== b.dataset.reqDel));
+    close();
+    toast('Pedido apagado.');
+  }));
+}
+
+// ---------------------------------------------------------------- instalar como app
+
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+function installHTML() {
+  if (isStandalone()) return '';
+  const canPrompt = Boolean(window.__installPrompt);
+  return `<section class="card tight"><span class="eyebrow">Instalar como aplicativo</span>
+    <p class="small" style="margin:6px 0 10px">${canPrompt ? 'Fica com ícone na tela inicial, abre em tela cheia e funciona sem internet.'
+    : isIOS() ? 'No Safari: toque em <b>Compartilhar</b> e depois em <b>Adicionar à Tela de Início</b>.'
+      : 'No Chrome: menu ⋮ → <b>Instalar app</b> (ou "Adicionar à tela inicial").'}</p>
+    ${canPrompt ? `<button class="btn sm primary" data-s="install">${icon('download')}Instalar o Jornada</button>` : ''}</section>`;
+}
+
+async function installApp() {
+  const p = window.__installPrompt;
+  if (!p) return;
+  p.prompt();
+  const { outcome } = await p.userChoice;
+  window.__installPrompt = null;
+  if (outcome === 'accepted') toast('Instalado! Procure o ícone do Jornada na tela inicial.', { tone: 'cyan' });
+}
+
 export function openSettings({ onReload, refreshMarket }) {
   const p = store.profile;
   const m = store.meta;
@@ -112,6 +176,14 @@ export function openSettings({ onReload, refreshMarket }) {
   openSheet({
     title: 'Ajustes & dados',
     body: `<div class="stack">
+      ${aiSettingsHTML()}
+      <section class="card tight">
+        <span class="eyebrow">Peças do seu app</span>
+        <p class="small" style="margin:6px 0 10px">${(store.state.recipes || []).filter((r) => r.profileId === store.pid).length} peça(s): potes, regras, lembretes, painéis e categorias que você ou o assistente montaram.</p>
+        <div class="grid-2"><button class="btn sm" data-s="recipes">${icon('puzzle')}Gerenciar</button><button class="btn sm ghost" data-s="recipe-new">${icon('plus')}Criar peça</button></div>
+      </section>
+      ${requestsHTML()}
+      ${installHTML()}
       ${cloudSectionHTML()}
       <section class="card tight">
         <div class="row between"><span class="eyebrow">Perfil ativo</span><button class="btn sm ghost" data-s="profile">${icon('edit')}Editar</button></div>
@@ -171,6 +243,11 @@ export function openSettings({ onReload, refreshMarket }) {
     onMount(el, close) {
       const on = (k, fn) => el.querySelector(`[data-s="${k}"]`)?.addEventListener('click', fn);
       bindCloudSection(el, close);
+      bindAISettings(el, close);
+      on('recipes', () => { close(); openRecipesSheet(); });
+      on('recipe-new', () => { close(); openRecipeCreator(); });
+      bindRequests(el, close);
+      on('install', async () => { close(); await installApp(); });
       el.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', async () => {
         await store.undo(b.dataset.undo);
         close();

@@ -32,6 +32,16 @@ const P = {
   hourglass: '<path d="M6 3h12M6 21h12M7 3c0 5 5 6 5 9s-5 4-5 9M17 3c0 5-5 6-5 9s5 4 5 9"/>',
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/>',
   cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.5 4.25 4.25 0 0 0 7 18z"/>',
+  puzzle: '<path d="M10 3h4v3a2 2 0 1 0 4 0V6h3v5h-2a2 2 0 1 0 0 4h2v5h-5v-2a2 2 0 1 0-4 0v2H3v-5h2a2 2 0 1 0 0-4H3V6h7z"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  jar: '<path d="M8 3h8M7 6h10l-1 3v9a3 3 0 0 1-3 3h-2a3 3 0 0 1-3-3V9z"/><path d="M8 13h8"/>',
+  gauge: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/>',
+  send: '<path d="M4 12l16-8-6 16-2-6z"/><path d="M12 14l8-10"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  play: '<path d="M7 5l12 7-12 7z"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
   btc: '<path d="M8 4v16M11 4v2M11 18v2M8 6h6a3 3 0 0 1 0 6H8M8 12h7a3 3 0 0 1 0 6H8"/>',
 };
 

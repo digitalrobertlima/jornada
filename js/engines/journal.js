@@ -10,16 +10,16 @@ const ACC_FIELDS = ['balance', 'limitAvailable', 'limitTotal', 'collateralTotal'
   'satsFromYield', 'satsFromCashback', 'cashbackPendingBRL', 'cashbackBRLTotal'];
 const PROF_FIELDS = ['rescuedLifeMinutes', 'accumulatedSats'];
 const PROF_LOGS = ['rescueLog', 'satsLog'];
-const KEYS = ['household', 'profiles', 'accounts', 'obligations', 'ledger'];
-const REMOVALS = { removeLedger: 'ledger', removeObligations: 'obligations', removeAccounts: 'accounts', removeProfiles: 'profiles' };
+const KEYS = ['household', 'profiles', 'accounts', 'obligations', 'ledger', 'recipes'];
+const REMOVALS = { removeLedger: 'ledger', removeObligations: 'obligations', removeAccounts: 'accounts', removeProfiles: 'profiles', removeRecipes: 'recipes' };
 
 const r2 = (x) => Math.round((Number(x) || 0) * 1e6) / 1e6;
 
 function emptyAction(id, label, at) {
   return {
     id, label, at,
-    created: { profiles: [], accounts: [], obligations: [], ledger: [] },
-    removed: { profiles: [], accounts: [], obligations: [], ledger: [] },
+    created: { profiles: [], accounts: [], obligations: [], ledger: [], recipes: [] },
+    removed: { profiles: [], accounts: [], obligations: [], ledger: [], recipes: [] },
     accountDeltas: {}, profileDeltas: {}, profileLogIds: {},
     priorObligations: {}, priorHousehold: null,
   };
@@ -34,8 +34,9 @@ export function recordInverse(action, state, changes) {
         if (!action.priorHousehold) action.priorHousehold = state.household ? { ...state.household } : { id: 'main', name: 'Minha Casa' };
         continue;
       }
-      const prior = state[key].find((r) => r.id === rec.id);
+      const prior = (state[key] || []).find((r) => r.id === rec.id);
       if (!prior) {
+        if (!action.created[key]) action.created[key] = [];
         if (!createdNow(key, rec.id)) action.created[key].push(rec.id);
         continue;
       }
@@ -58,8 +59,9 @@ export function recordInverse(action, state, changes) {
           const added = (rec[L] || []).map((x) => x.id).filter((id) => id && !before.has(id));
           if (added.length) logs[L] = [...(logs[L] || []), ...added];
         }
-      } else if (key === 'obligations' || key === 'ledger') {
-        const bucket = key === 'obligations' ? action.priorObligations : (action.priorLedger || (action.priorLedger = {}));
+      } else if (key === 'obligations' || key === 'ledger' || key === 'recipes') {
+        const bucket = key === 'obligations' ? action.priorObligations
+          : key === 'ledger' ? (action.priorLedger || (action.priorLedger = {})) : (action.priorRecipes || (action.priorRecipes = {}));
         if (!bucket[rec.id]) bucket[rec.id] = structuredClone(prior);
       }
     }
@@ -70,8 +72,10 @@ export function recordInverse(action, state, changes) {
         action.created[key] = action.created[key].filter((x) => x !== id);
         continue;
       }
-      const prior = state[key].find((r) => r.id === id);
-      if (prior) action.removed[key].push(structuredClone(action.priorObligations?.[id] || prior));
+      const prior = (state[key] || []).find((r) => r.id === id);
+      if (!action.removed[key]) action.removed[key] = [];
+      const snap = key === 'obligations' ? action.priorObligations?.[id] : key === 'recipes' ? action.priorRecipes?.[id] : null;
+      if (prior) action.removed[key].push(structuredClone(snap || prior));
     }
   }
   return action;
@@ -83,11 +87,12 @@ export function newAction(id, label) {
 
 /** Monta as mudanças que desfazem `action` sobre o estado ATUAL. */
 export function buildUndo(action, state) {
-  const ch = { profiles: [], accounts: [], obligations: [], ledger: [], household: [], removeLedger: [], removeObligations: [], removeAccounts: [], removeProfiles: [] };
+  const ch = { profiles: [], accounts: [], obligations: [], ledger: [], recipes: [], household: [], removeLedger: [], removeObligations: [], removeAccounts: [], removeProfiles: [], removeRecipes: [] };
   ch.removeLedger.push(...action.created.ledger);
   ch.removeObligations.push(...action.created.obligations);
   ch.removeAccounts.push(...action.created.accounts);
   ch.removeProfiles.push(...action.created.profiles);
+  ch.removeRecipes.push(...(action.created.recipes || []));
 
   for (const [id, d] of Object.entries(action.accountDeltas)) {
     const cur = state.accounts.find((a) => a.id === id);
@@ -99,6 +104,9 @@ export function buildUndo(action, state) {
   }
   for (const [id, prior] of Object.entries(action.priorObligations)) ch.obligations.push(structuredClone(prior));
   for (const [id, prior] of Object.entries(action.priorLedger || {})) ch.ledger.push(structuredClone(prior));
+  for (const [id, prior] of Object.entries(action.priorRecipes || {})) {
+    if (!(action.removed.recipes || []).some((r) => r.id === id)) ch.recipes.push(structuredClone(prior));
+  }
   const pids = new Set([...Object.keys(action.profileDeltas), ...Object.keys(action.profileLogIds)]);
   for (const id of pids) {
     const cur = state.profiles.find((p) => p.id === id);
@@ -108,8 +116,8 @@ export function buildUndo(action, state) {
     for (const [L, ids] of Object.entries(action.profileLogIds[id] || {})) next[L] = (next[L] || []).filter((x) => !ids.includes(x.id));
     ch.profiles.push(next);
   }
-  for (const key of ['profiles', 'accounts', 'obligations', 'ledger']) {
-    for (const rec of action.removed[key]) ch[key].push(structuredClone(rec));
+  for (const key of ['profiles', 'accounts', 'obligations', 'ledger', 'recipes']) {
+    for (const rec of action.removed[key] || []) ch[key].push(structuredClone(rec));
   }
   if (action.priorHousehold) ch.household.push(action.priorHousehold);
   return ch;
@@ -132,6 +140,14 @@ export function describeAction(action, state) {
     if (o && !restored.has(o.beneficiary)) lines.push(`Remove o cadastro: ${o.beneficiary}`);
   }
   for (const rec of action.removed.obligations) lines.push(`Restaura: ${rec.beneficiary}`);
+  for (const id of action.created.recipes || []) {
+    const r = (state.recipes || []).find((x) => x.id === id);
+    if (r) lines.push(`Remove a peça: ${r.title}`);
+  }
+  for (const [id, prior] of Object.entries(action.priorRecipes || {})) {
+    if (!(action.created.recipes || []).includes(id)) lines.push(`Peça "${prior.title}" volta como estava`);
+  }
+  for (const rec of action.removed.recipes || []) lines.push(`Restaura a peça: ${rec.title}`);
   for (const [id, d] of Object.entries(action.profileDeltas)) {
     if (d.rescuedLifeMinutes) lines.push(`Horas de vida: −${Math.round(d.rescuedLifeMinutes)} min`);
   }

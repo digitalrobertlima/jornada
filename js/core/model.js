@@ -3,6 +3,7 @@
 // `profileShareAmount`) e devolvem o formato canônico usado pelos motores.
 
 import { num, round2 } from './util.js';
+import { normalizeRecipe } from '../recipes/model.js';
 
 export const SCHEMA_VERSION = '2.0';
 
@@ -219,5 +220,6 @@ export function normalizeState(raw) {
     accounts: (raw.accounts || []).filter((a) => a && a.id).map(normalizeAccount),
     obligations: (raw.obligations || []).filter((o) => o && o.id).map(normalizeObligation),
     ledger: (raw.ledger || []).filter((e) => e && e.id).map(normalizeLedger),
+    recipes: (raw.recipes || []).filter((r) => r && r.id).map(normalizeRecipe),
   };
 }

@@ -18,11 +18,11 @@ const JOURNAL_MAX = 60;
 // Referência embutida, usada só até a primeira cotação ao vivo chegar (ou sem internet no 1º uso).
 export const FALLBACK_MARKET = { btc: 420000, cdi: 14.15, label: 'referência offline (nov/2026)' };
 
-const KEYS = ['household', 'profiles', 'accounts', 'obligations', 'ledger'];
-const REMOVALS = { removeLedger: 'ledger', removeObligations: 'obligations', removeAccounts: 'accounts', removeProfiles: 'profiles' };
+const KEYS = ['household', 'profiles', 'accounts', 'obligations', 'ledger', 'recipes'];
+const REMOVALS = { removeLedger: 'ledger', removeObligations: 'obligations', removeAccounts: 'accounts', removeProfiles: 'profiles', removeRecipes: 'recipes' };
 
 export const store = {
-  state: { household: null, profiles: [], accounts: [], obligations: [], ledger: [] },
+  state: { household: null, profiles: [], accounts: [], obligations: [], ledger: [], recipes: [] },
   meta: { activeProfileId: null, demo: false, market: {}, liveMarket: true, manual: {} },
   tab: 'hud',
   today: todayISO(),
@@ -101,7 +101,7 @@ export const store = {
         continue;
       }
       for (const rec of list) {
-        const arr = this.state[key];
+        const arr = this.state[key] || (this.state[key] = []);
         const i = arr.findIndex((r) => r.id === rec.id);
         if (i >= 0) arr[i] = rec;
         else arr.push(rec);
@@ -109,7 +109,7 @@ export const store = {
     }
     for (const [rk, key] of Object.entries(REMOVALS)) {
       const ids = changes[rk];
-      if (ids?.length) this.state[key] = this.state[key].filter((r) => !ids.includes(r.id));
+      if (ids?.length) this.state[key] = (this.state[key] || []).filter((r) => !ids.includes(r.id));
     }
     this.version++;
   },
@@ -119,6 +119,8 @@ export const store = {
    * Com `actionId`, junta-se a uma ação já aberta (ex.: entrada + pagamento do "Entrou dinheiro").
    */
   async commit(changes, { render = true, label = null, actionId = null } = {}) {
+    let notes = [];
+    if ((label || actionId) && this.transform) ({ changes, notes } = this.transform(this.state, changes));
     let action = null;
     if (label || actionId) {
       const journal = this.meta.journal || [];
@@ -135,7 +137,8 @@ export const store = {
       await vault.setMeta('lastLocalChange', this.meta.lastLocalChange);
     }
     if (render) this.onChange();
-    if (action && !actionId) this.onAction(action);
+    if (action && !actionId) this.onAction(action, notes);
+    else if (notes.length) this.onAction(null, notes);
     return action;
   },
 
@@ -168,6 +171,7 @@ export const store = {
   },
 
   async replaceAll(state, meta = {}) {
+    state = { recipes: [], ...state };
     await vault.replaceAll(state, meta);
     this.state = state;
     Object.assign(this.meta, meta);
@@ -180,7 +184,7 @@ export const store = {
 
   async clearAll() {
     await vault.clearAll();
-    this.state = { household: null, profiles: [], accounts: [], obligations: [], ledger: [] };
+    this.state = { household: null, profiles: [], accounts: [], obligations: [], ledger: [], recipes: [] };
     this.meta = { activeProfileId: null, demo: false, market: this.meta.market, liveMarket: true, manual: {}, journal: [] };
     await vault.setMeta('market', this.meta.market);
     this.version++;
