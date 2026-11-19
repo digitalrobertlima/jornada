@@ -55,9 +55,27 @@
       "currentEra": 1,
       "rescuedLifeMinutes": 960,
       "accumulatedSats": 24300
+    },
+    {
+      "id": "prof_02",
+      "name": "Perfil 2",
+      "monthlyNetIncome": 2600.00,
+      "monthlyWorkAndCommuteHours": 210,
+      "realHourlyRate": 12.38,
+      "currentEra": 1,
+      "rescuedLifeMinutes": 0,
+      "accumulatedSats": 0
     }
   ],
   "accounts": [
+    {
+      "id": "acc_bank_01",
+      "profileId": "prof_01",
+      "name": "Conta Corrente",
+      "type": "checking_cash",
+      "balance": 1180.00,
+      "isRealLiquidity": true
+    },
     {
       "id": "acc_bipa_01",
       "profileId": "prof_01",
@@ -65,7 +83,7 @@
       "type": "collateralized_yield_crypto",
       "collateralTotal": 7000.00,
       "lockedInstallments": 6000.00,
-      "availableLimit": 1000.00,
+      "limitAvailable": 1000.00,
       "isRealLiquidity": false,
       "yieldConfig": {
         "cdiPercent": 100,
@@ -103,7 +121,8 @@
       "beneficiary": "Aluguel Casa",
       "totalAmount": 2500.00,
       "isShared": true,
-      "profileShareAmount": 1250.00,
+      "shareMode": "fixed",
+      "fixedShare": { "prof_01": 1250.00 },
       "dueDate": "2026-12-05"
     },
     {
@@ -113,7 +132,7 @@
       "bucket": "negocio",
       "zone": "frontline",
       "beneficiary": "Fornecedor Pet Shop",
-      "barcode": "2379338128600000000030000000400119900000060000",
+      "barcode": "23793381288600000000903000000046616380000060000",
       "principalAmount": 600.00,
       "dueDate": "2026-11-22",
       "rules": {
@@ -138,20 +157,24 @@
     }
   ]
 }
+```
 
-6. Leitor Offline de Boleto (boletoParser.js)
- * Entrada: String numérica (47 dígitos para títulos bancários ou 48 dígitos para concessionárias) via colagem ou scanner de câmera.
+> **Notas do Schema v2.0 (implementação):** `limitAvailable` é o nome único do limite livre (cartão de crédito e cartão com garantia; o app ainda aceita `availableLimit` na importação). No cartão com garantia, `limitAvailable = collateralTotal − lockedInstallments` sempre. Cota de conta compartilhada: `shareMode` = `equal` | `ratio` (`splitRatio`) | `fixed` (`fixedShare`; quem não tem cota fixa divide o restante). `zone` é opcional: vazio = triagem automática; preenchido = escolha manual do usuário.
+
+## 6. Leitor Offline de Boleto (`boletoParser.js`)
+ * Entrada: String numérica (47 dígitos para títulos bancários, 48 dígitos para concessionárias, ou 44 dígitos do código de barras lido por câmera) via colagem ou scanner.
  * Processamento 100% client-side:
    * Remove pontuação e valida dígitos verificadores (Módulo 10 / Módulo 11).
    * Para títulos bancários (47 dígitos): extrai bankCode (posições 0–3), dueFactor (posições 33–37, aplicando cálculo de data base FEBRABAN pós-virada de 22/02/2025) e amount (posições 37–47 divididos por 100).
    * Retorna objeto pré-preenchido { bankCode, dueDate, amount, isValid } em < 5ms sem requisições de rede.
-7. Ergonomia Visual, HUD & Estrutura de Diretórios
+## 7. Ergonomia Visual, HUD & Estrutura de Diretórios
  * Paleta: Midnight Carbon (#0F1115) de fundo, superfícies elevadas (#161920), tipografia geométrica de alto contraste, Magenta Neon (#FF007F) para alertas de juros/protesto e Ciano (#00BFFF) para liquidez real e Satoshis.
  * 4 Visões Principais:
    * HUD Tático: Seletor de Perfil, placar de Horas Resgatadas, Simulador "Caiu Dinheiro" (fatiador automático de entradas) e Card do Alvo Prioritário nº 1.
    * Carteira & Onda: Deck 3D de cartões/contas (mostrando saldo vs. garantia travada no cartão Bipa), Gráfico Diário de Fluxo com Linha d'Água dos próximos 15 dias e botão rápido de lançamento (+ / -).
    * Campo de Batalha: Totens volumétricos em 2 camadas (base = principal; topo pulsante = juros/multas), 5 botões contextuais (+ Boleto [Colar Código], + Cartão, + Pix/Pessoa, + Financiamento, + Vital/Casa) e cofre recolhido do Domo de Quarentena.
    * Cofre Soberano: Placar unificado de Satoshis (rendimento CDI + cashback + aportes diretos), trilha visual rumo a 1.00 BTC e ponte Web3 condicionada à Trava de Liquidez Real.
+```
 /
 ├── index.html
 ├── manifest.webmanifest
@@ -172,3 +195,4 @@
           ├── deck3d.js
           ├── flowChart.js
           └── wizards.js
+```
