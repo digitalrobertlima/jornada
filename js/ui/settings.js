@@ -9,7 +9,7 @@ import { buildDemoScenario } from '../db/demoScenario.js';
 import { normalizeHousehold } from '../core/model.js';
 import { openProfileWizard } from './wizards.js';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 
 function download(filename, text) {
   const blob = new Blob([text], { type: 'application/json' });

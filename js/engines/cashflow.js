@@ -263,9 +263,22 @@ export function payObligation(state, p, { today, btcPrice } = {}) {
     ob.balance = round2(Math.max(0, num(ob.balance) - reduction));
   }
 
-  if (ob.type === 'financing' && num(ob.installmentAmount) > 0 && paid >= num(ob.installmentAmount) - 0.01 && ob.balance > 0) {
-    if (ob.installmentsLeft != null) ob.installmentsLeft = Math.max(0, num(ob.installmentsLeft) - 1);
-    if (ob.dueDate) ob.dueDate = addMonths(ob.dueDate, 1);
+  // parcelamento (qualquer tipo): cada parcela coberta avança a contagem, o vencimento
+  // e, em boleto/carnê, o prazo do cartório — a próxima parcela tem o próprio risco de protesto
+  const inst = num(ob.installmentAmount);
+  let coveredInstallment = false;
+  if (inst > 0 && !ob.isShared) {
+    coveredInstallment = reduction >= inst - 0.01;
+    if (settle || ob.balance <= 0.01) {
+      if (ob.installmentsLeft != null) ob.installmentsLeft = 0;
+    } else {
+      const covered = Math.floor((reduction + 0.01) / inst);
+      if (covered > 0) {
+        if (ob.installmentsLeft != null) ob.installmentsLeft = Math.max(1, num(ob.installmentsLeft) - covered);
+        if (ob.dueDate) ob.dueDate = addMonths(ob.dueDate, covered);
+        if (ob.rules?.protestDeadline) ob.rules = { ...ob.rules, protestDeadline: addMonths(ob.rules.protestDeadline, covered) };
+      }
+    }
   }
 
   if (ob.type === 'card_debt' && ob.accountId) {
@@ -305,8 +318,10 @@ export function payObligation(state, p, { today, btcPrice } = {}) {
   }
 
   // Dano bloqueado → horas de vida
-  const rescue = rescueBreakdown(original, paid, date, { fullPayment: fullForProfile, discount });
-  if (rescue.parts.some((x) => x.kind === 'protest')) ob.protestRescued = true;
+  const rescue = rescueBreakdown(original, paid, date, { fullPayment: fullForProfile || coveredInstallment, discount });
+  const advanced = ob.dueDate !== original.dueDate;
+  if (rescue.parts.some((x) => x.kind === 'protest')) ob.protestRescued = !advanced;
+  else if (advanced) ob.protestRescued = false;
   upsert(changes.obligations, ob);
 
   if (p.accountId && paid > 0) {

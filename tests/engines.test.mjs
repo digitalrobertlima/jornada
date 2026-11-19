@@ -225,3 +225,57 @@ test('o exemplo do SPEC.md importa e passa pela triagem', async () => {
   const t1 = triage(state, 'prof_01', '2026-11-19');
   assert.equal(t1.frontline.find((i) => i.id === 'obl_rent_01').open, 1250);
 });
+
+test('dívida com pessoa parcelada: 3x de R$ 75 (caso Betina)', () => {
+  const s = buildDemoScenario(TODAY);
+  s.obligations.push(normalizeObligation({
+    id: 'obl_betina', profileId: 'prof_01', type: 'personal_debt', bucket: 'familia', beneficiary: 'Betina',
+    balance: 225, principalAmount: 225, installmentAmount: 75, installmentsTotal: 3, installmentsLeft: 3, dueDate: '2026-11-25',
+  }));
+  let item = triage(s, 'prof_01', TODAY).battlefield.find((i) => i.id === 'obl_betina');
+  assert.equal(item.dueNow, 75); // vence agora só a parcela
+  assert.equal(item.updated, 225); // a Bola de Neve enxerga o saldo inteiro
+  assert.equal(item.installment.label, 'parcela 1/3');
+
+  let r = payObligation(s, { obligationId: 'obl_betina', profileId: 'prof_01', amount: 75, accountId: 'acc_bank_01', date: TODAY }, { today: TODAY });
+  let s2 = apply(s, r.changes);
+  let ob = s2.obligations.find((o) => o.id === 'obl_betina');
+  assert.equal(ob.balance, 150);
+  assert.equal(ob.installmentsLeft, 2);
+  assert.equal(ob.dueDate, '2026-12-25');
+  item = triage(s2, 'prof_01', TODAY).battlefield.find((i) => i.id === 'obl_betina');
+  assert.equal(item.installment.label, 'parcela 2/3');
+
+  // duas parcelas de uma vez quitam tudo
+  r = payObligation(s2, { obligationId: 'obl_betina', profileId: 'prof_01', amount: 150, date: TODAY }, { today: TODAY });
+  assert.equal(r.fullyPaid, true);
+  ob = apply(s2, r.changes).obligations.find((o) => o.id === 'obl_betina');
+  assert.equal(ob.status, 'paid');
+  assert.equal(ob.installmentsLeft, 0);
+});
+
+test('parcelamento: total menor que restantes é corrigido e sem valor de parcela não é parcelado', () => {
+  const a = normalizeObligation({ id: 'x', type: 'boleto', balance: 300, installmentAmount: 100, installmentsLeft: 3, installmentsTotal: 2 });
+  assert.equal(a.installmentsTotal, 3);
+  const b = normalizeObligation({ id: 'y', type: 'boleto', balance: 300, installmentsLeft: 3 });
+  assert.equal(b.installmentsLeft, null);
+});
+
+test('carnê protestável: cada parcela paga em dia segura o cartório e o prazo avança', () => {
+  const s = buildDemoScenario(TODAY);
+  s.obligations.push(normalizeObligation({
+    id: 'obl_carne', profileId: 'prof_01', type: 'boleto', beneficiary: 'Loja (carnê)', balance: 300, principalAmount: 300,
+    installmentAmount: 100, installmentsTotal: 3, installmentsLeft: 3, dueDate: '2026-11-25',
+    rules: { canProtest: true, protestDeadline: '2026-11-30', estimatedProtestFee: 210, finePercent: 2 },
+  }));
+  const item = triage(s, 'prof_01', TODAY).frontline.find((i) => i.id === 'obl_carne');
+  assert.equal(item.dueNow, 100);
+  let r = payObligation(s, { obligationId: 'obl_carne', profileId: 'prof_01', amount: 100, date: TODAY }, { today: TODAY });
+  assert.equal(r.rescue.parts.find((x) => x.kind === 'protest').amount, 210);
+  const s2 = apply(s, r.changes);
+  const ob = s2.obligations.find((o) => o.id === 'obl_carne');
+  assert.equal(ob.rules.protestDeadline, '2026-12-30');
+  assert.equal(ob.protestRescued, false); // a próxima parcela ainda pode ser segurada
+  r = payObligation(s2, { obligationId: 'obl_carne', profileId: 'prof_01', amount: 100, date: '2026-12-20' }, { today: '2026-12-20' });
+  assert.ok(r.rescue.parts.some((x) => x.kind === 'protest'));
+});

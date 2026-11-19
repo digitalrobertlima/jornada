@@ -26,7 +26,7 @@ export function renderBattle(d) {
     const cd = dl ? countdownText(dl.date) : null;
     return `<button type="button" class="front-row" data-act="obligation-open" data-id="${esc(i.id)}">
       <span class="t">${esc(i.ob.beneficiary)}</span><span class="v num">${brl(i.dueNow)}</span>
-      <span class="tiny">${esc(i.reason)}${i.ob.isShared ? ' · sua cota' : ''}</span>
+      <span class="tiny">${esc(i.reason)}${i.ob.isShared ? ' · sua cota' : ''}${i.installment ? ` · ${esc(i.installment.label)}` : ''}</span>
       <span class="tiny ${cd?.hot ? 'c-magenta' : ''}" style="text-align:right">${cd ? `${dl.kind === 'cartório' ? 'cartório ' : ''}${cd.late ? cd.text : `em ${cd.text}`}` : ''}</span>
     </button>`;
   }).join('');

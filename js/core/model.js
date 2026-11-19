@@ -154,7 +154,15 @@ export function normalizeObligation(o) {
   };
   out.monthlyInterestPercent = num(o.monthlyInterestPercent);
   out.installmentAmount = num(o.installmentAmount) || null;
-  out.installmentsLeft = o.installmentsLeft == null ? null : num(o.installmentsLeft);
+  const blank = (x) => x == null || x === '';
+  out.installmentsLeft = blank(o.installmentsLeft) ? null : Math.max(0, Math.round(num(o.installmentsLeft)));
+  out.installmentsTotal = blank(o.installmentsTotal)
+    ? out.installmentsLeft
+    : Math.max(out.installmentsLeft ?? 0, Math.round(num(o.installmentsTotal)));
+  if (!out.installmentAmount) {
+    out.installmentsLeft = null;
+    out.installmentsTotal = null;
+  }
   out.recurrence = o.recurrence === 'monthly' ? 'monthly' : null;
   out.isLegacy = Boolean(o.isLegacy) || out.type === 'legacy_debt';
   out.isWorkTool = Boolean(o.isWorkTool);
@@ -164,6 +172,18 @@ export function normalizeObligation(o) {
   out.status = o.status === 'paid' ? 'paid' : 'open';
   out.dueDate = o.dueDate || null;
   return out;
+}
+
+/** Situação do parcelamento de uma dívida (qualquer tipo), ou null se não for parcelada. */
+export function installmentInfo(ob) {
+  const amount = num(ob?.installmentAmount);
+  if (!(amount > 0)) return null;
+  const left = ob.installmentsLeft == null ? null : num(ob.installmentsLeft);
+  const total = ob.installmentsTotal == null ? left : num(ob.installmentsTotal);
+  const paid = total != null && left != null ? Math.max(0, total - left) : null;
+  const current = total ? Math.min(total, (paid ?? 0) + 1) : null;
+  const label = total ? (left === 1 ? `última parcela (${total}/${total})` : `parcela ${current}/${total}`) : 'parcelado';
+  return { amount, left, total, paid, current, label };
 }
 
 export function normalizeLedger(e) {

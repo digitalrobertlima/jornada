@@ -47,7 +47,8 @@ function renderHeader(d) {
       aria-pressed="${p.id === store.pid}" aria-label="Perfil ${esc(p.name)}" title="${esc(p.name)}">${esc(p.name.trim().charAt(0).toUpperCase() || '?')}</button>`).join('')
     + '<button type="button" class="avatar add" data-act="profile-new" aria-label="Adicionar perfil" title="Adicionar perfil">+</button>';
   const badge = document.getElementById('badge-front');
-  const urgent = d.tri.frontline.filter((i) => i.isProtestable || i.late > 0).length;
+  const urgent = d.tri.frontline.filter((i) => i.isProtestable || i.late > 0).length
+    + d.tri.battlefield.filter((i) => i.late > 0).length;
   badge.hidden = urgent === 0;
   badge.textContent = String(urgent);
 }

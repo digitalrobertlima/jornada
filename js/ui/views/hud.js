@@ -42,6 +42,7 @@ export function missionCard(item, { rate, isTarget = false }) {
         <div class="title">${esc(item.ob.beneficiary)}</div>
         <div class="row wrap" style="gap:6px;margin-top:6px">
           <span class="pill ${item.isProtestable ? 'magenta' : 'cyan'}">${esc(item.reason)}</span>${shared}
+          ${item.installment ? `<span class="pill">${esc(item.installment.label)}</span>` : ''}
         </div>
       </div>
       <div style="text-align:right">
@@ -72,6 +73,8 @@ export function renderHUD(d, store) {
   const workdays = minutesToWorkdays(profile.rescuedLifeMinutes, profile);
   const shrinking = tri.battlefield.find((i) => i.alerts.some((a) => a.kind === 'limitShrinking'));
   const missions = tri.frontline.filter((i) => i !== target);
+  const lateOthers = tri.battlefield.filter((i) => i.late > 0).sort((a, b) => b.late - a.late);
+  const lateCost = lateOthers.reduce((s, i) => s + i.riskParts.accrued, 0);
 
   const demo = store.meta.demo
     ? `<div class="demo-banner"><span>${icon('info')} Modo demonstração — dados fictícios</span><button class="btn sm ghost" data-act="demo-clear">Limpar tudo</button></div>` : '';
@@ -86,7 +89,7 @@ export function renderHUD(d, store) {
       <div class="row between"><span class="eyebrow" id="t-alvo">${icon('target', 'c-magenta')} Alvo prioritário nº 1</span>
         <span class="pill">${target.zone === 'frontline' ? 'Zona 1' : target.zone === 'battlefield' ? 'Zona 2' : 'Zona 3'}</span></div>
       <div class="beneficiary" style="margin-top:10px">${esc(target.ob.beneficiary)}</div>
-      <div class="small" style="margin-top:2px">${esc(target.reason)}</div>
+      <div class="small" style="margin-top:2px">${esc(target.reason)}${target.installment ? ` · ${esc(target.installment.label)} de ${brl(target.installment.amount)}` : ''}</div>
       <div class="row between" style="margin-top:12px;align-items:flex-end">
         <div><div class="mid num">${brl(target.dueNow)}</div><div class="tiny">${target.ob.isShared ? 'sua cota · ' : ''}= ${lifeCost(target.dueNow, rate)} da sua vida</div></div>
         ${(() => {
@@ -154,6 +157,11 @@ export function renderHUD(d, store) {
     <button class="cta-caiu" type="button" data-act="caiu">
       ${icon('bolt')}<span><b>Caiu dinheiro?</b><span class="small">Simule onde cada real rende mais antes de gastar.</span></span>
     </button>
+
+    ${lateOthers.length ? `<button type="button" class="alert" data-act="goto" data-tab="battle" style="text-align:left;width:100%;font:inherit;cursor:pointer">${icon('alert')}<div>
+      <b>${lateOthers.length} conta${lateOthers.length > 1 ? 's' : ''} atrasada${lateOthers.length > 1 ? 's' : ''}:</b>
+      ${lateOthers.slice(0, 3).map((i) => `${esc(i.ob.beneficiary)} (há ${i.late} dia${i.late > 1 ? 's' : ''})`).join(', ')}${lateOthers.length > 3 ? '…' : ''}.
+      ${lateCost > 0.009 ? ` O atraso já somou <b>${brl(lateCost)}</b> em multa e juros.` : ''} <span class="c-ink2">Ver no Campo de Batalha →</span></div></button>` : ''}
 
     ${shrinking && (deficit > 0 || tri.frontline.length) ? `<div class="alert">${icon('alert')}<div><b>${esc(shrinking.ob.beneficiary)}:</b> ${esc(shrinking.alerts[0].text)}</div></div>` : ''}
 

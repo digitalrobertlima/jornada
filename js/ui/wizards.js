@@ -9,8 +9,9 @@ import { brl, lifeTime, parseMoney, dateHuman } from '../core/format.js';
 import { addDays, isISODate } from '../core/dates.js';
 import { uid, num, round2 } from '../core/util.js';
 import {
-  normalizeAccount, normalizeObligation, normalizeProfile, normalizeHousehold, VITAL_KINDS, ACCOUNT_TYPES, isRealLiquidity,
+  normalizeAccount, normalizeObligation, normalizeProfile, normalizeHousehold, VITAL_KINDS, ACCOUNT_TYPES, isRealLiquidity, installmentInfo,
 } from '../core/model.js';
+import { installmentBar } from './deck3d.js';
 import { parseBoleto } from '../parsers/boletoParser.js';
 import { payObligation, addLedgerEntry, removeLedgerEntry } from '../engines/cashflow.js';
 import { buildItem, memberIds } from '../engines/triage.js';
@@ -69,6 +70,92 @@ function itemFor(id) {
 
 function ensureHousehold(changes) {
   if (!store.state.household?.id) changes.household = [normalizeHousehold({ name: 'Minha Casa' })];
+}
+
+// ------------------------------------------------------------ Parcelamento (qualquer dívida)
+
+function installmentBlock(ex, { forced = false, withDate = true, amountName = 'amount' } = {}) {
+  const on = forced || Boolean(ex?.installmentAmount);
+  const total = ex?.installmentsTotal ?? '';
+  const paidN = ex?.installmentsTotal != null && ex?.installmentsLeft != null ? ex.installmentsTotal - ex.installmentsLeft : 0;
+  return `<div class="card tight stack" data-inst data-amount-name="${amountName}">
+    ${forced ? '<input type="hidden" name="isInstallment" value="1"><span class="eyebrow">Parcelas</span>'
+    : checkField('isInstallment', 'É parcelado', on, 'Ex.: 3x de R$ 75. O app cobra uma parcela por vez e avança sozinho para a próxima.')}
+    <div class="stack" data-inst-fields${on ? '' : ' hidden'}>
+      <div class="grid-2">
+        ${numField('installmentsTotal', 'Total de parcelas', total, { step: 1, placeholder: 'Ex.: 3' })}
+        ${numField('installmentsPaid', 'Já paguei', paidN, { step: 1 })}
+      </div>
+      <div class="grid-2">
+        ${moneyField('installmentAmount', 'Valor de cada parcela', ex?.installmentAmount ?? '')}
+        ${withDate ? dateField('nextDue', 'Próxima parcela vence', ex?.dueDate || '') : ''}
+      </div>
+      <div class="tiny" data-inst-hint></div>
+    </div>
+  </div>`;
+}
+
+function bindInstallments(form) {
+  const box = form.querySelector('[data-inst]');
+  if (!box) return;
+  const fields = box.querySelector('[data-inst-fields]');
+  const hint = box.querySelector('[data-inst-hint]');
+  const amountEl = form.elements[box.dataset.amountName];
+  const chk = form.querySelector('input[type=checkbox][name=isInstallment]');
+  const isOn = () => (chk ? chk.checked : true);
+  // valor digitado pela pessoa nunca é sobrescrito; valor preenchido pelo app pode ser recalculado
+  amountEl?.addEventListener('input', () => { delete amountEl.dataset.auto; });
+  const sync = () => {
+    const on = isOn();
+    fields.hidden = !on;
+    form.querySelectorAll('[data-single-due]').forEach((el) => { el.hidden = on; });
+    if (!on) { hint.textContent = ''; return; }
+    const total = Math.round(num(form.installmentsTotal.value));
+    const left = total - Math.round(num(form.installmentsPaid.value));
+    const parcela = parseMoney(form.installmentAmount.value);
+    if (total > 0 && left <= 0) {
+      hint.innerHTML = '<span class="c-magenta">Se já pagou todas, a dívida está quitada.</span>';
+      return;
+    }
+    if (left > 0 && parcela > 0) {
+      const rest = round2(parcela * left);
+      if (amountEl && (!amountEl.value || amountEl.dataset.auto)) {
+        amountEl.value = String(rest).replace('.', ',');
+        amountEl.dataset.auto = '1';
+      }
+      const typed = parseMoney(amountEl?.value);
+      hint.innerHTML = `Faltam <b>${left}x de ${brl(parcela)}</b> = ${brl(rest)}${typed && Math.abs(typed - rest) > 0.5 ? ` · saldo informado: ${brl(typed)}` : ''}`;
+    } else if (left > 0 && parseMoney(amountEl?.value) > 0) {
+      hint.innerHTML = `Faltam <b>${left}x de ${brl(parseMoney(amountEl.value) / left)}</b> (dividindo o total). Ajuste o valor da parcela se for diferente.`;
+    } else {
+      hint.textContent = 'Informe o total de parcelas e o valor de cada uma.';
+    }
+  };
+  chk?.addEventListener('change', () => {
+    // boleto/carnê: o valor lido do código é o de UMA parcela
+    if (chk.checked && !form.installmentAmount.value && amountEl?.value && form.querySelector('[name=barcode]')) {
+      form.installmentAmount.value = amountEl.value;
+      amountEl.dataset.auto = '1';
+    }
+    sync();
+  });
+  box.addEventListener('input', sync);
+  sync();
+}
+
+function readInstallments(v, amount) {
+  const on = v.isInstallment === true || v.isInstallment === '1';
+  if (!on) return { fields: { installmentAmount: null, installmentsLeft: null, installmentsTotal: null }, amount, nextDue: null };
+  const total = Math.round(num(v.installmentsTotal));
+  const left = total - Math.max(0, Math.round(num(v.installmentsPaid)));
+  if (total < 1) throw new Error('Informe em quantas parcelas foi dividido.');
+  if (left < 1) throw new Error('Se todas as parcelas já foram pagas, a dívida está quitada.');
+  let parcela = parseMoney(v.installmentAmount);
+  let amt = amount;
+  if (parcela <= 0 && amt > 0) parcela = round2(amt / left);
+  if (parcela <= 0) throw new Error('Informe o valor de cada parcela.');
+  if (amt <= 0) amt = round2(parcela * left);
+  return { fields: { installmentAmount: parcela, installmentsTotal: total, installmentsLeft: left }, amount: amt, nextDue: v.nextDue || null };
 }
 
 // ------------------------------------------------------------ Onboarding
@@ -179,7 +266,7 @@ export function openObligationWizard(kind, existingId = null) {
       ${textField('beneficiary', 'Quem cobra', ex?.beneficiary || '', { required: true, placeholder: 'Ex.: Fornecedor, condomínio, escola' })}
       <div class="grid-2">
         ${moneyField('amount', 'Valor', ex?.balance ?? '', { big: true })}
-        ${dateField('dueDate', 'Vencimento', ex?.dueDate || '')}
+        ${dateField('dueDate', 'Vencimento', ex?.dueDate || '', { hint: 'Se for parcelado: o da parcela atual.' })}
       </div>
       <label class="field"><span>É de onde?</span>${seg('bucket', [['pessoal', 'Pessoal'], ['negocio', 'Negócio'], ['casa', 'Casa']], ex?.bucket || 'pessoal')}</label>
       ${checkField('canProtest', 'Pode ir a protesto em cartório', ex ? r.canProtest : true, 'Boleto comercial costuma poder. Protesto suja o nome e custa taxa de cartório.')}
@@ -189,6 +276,7 @@ export function openObligationWizard(kind, existingId = null) {
       </div>
       <details><summary class="small" style="cursor:pointer">Multa e juros do boleto</summary><div class="grid-2" style="margin-top:10px">
         ${numField('finePercent', 'Multa (%)', r.finePercent ?? 2)}${numField('dailyInterestPercent', 'Juros ao dia (%)', r.dailyInterestPercent ?? 0.033)}</div></details>
+      ${installmentBlock(ex, { withDate: false })}
       ${legacyBlock(ex?.isLegacy)}`;
   } else if (kind === 'card') {
     const acc = ex?.accountId ? store.state.accounts.find((a) => a.id === ex.accountId) : null;
@@ -205,26 +293,22 @@ export function openObligationWizard(kind, existingId = null) {
         ${numField('dueDay', 'Dia de vencimento', acc?.dueDay ?? '', { step: 1 })}
       </div>
       ${checkField('limitShrinking', 'O banco está cortando meu limite', acc?.limitShrinking, 'Quando o limite é cortado, pagar o mínimo não devolve limite. O app vai te alertar.')}` : ''}
+      ${installmentBlock(ex, { amountName: 'balance' })}
       ${legacyBlock(ex?.isLegacy)}`;
   } else if (kind === 'person') {
     body = `
       ${textField('beneficiary', 'Para quem você deve', ex?.beneficiary || '', { required: true, placeholder: 'Ex.: Mãe, Tia Célia, Léo' })}
-      ${moneyField('amount', 'Quanto', ex?.balance ?? '', { big: true })}
+      ${moneyField('amount', 'Quanto falta pagar (total)', ex?.balance ?? '', { big: true })}
       <label class="field"><span>Relação</span>${seg('bucket', [['familia', 'Família'], ['pessoal', 'Amigo(a)'], ['negocio', 'Trabalho']], ex?.bucket || 'familia')}</label>
-      ${dateField('dueDate', 'Combinou alguma data? (opcional)', ex?.dueDate || '')}
+      ${installmentBlock(ex)}
+      <div data-single-due>${dateField('dueDate', 'Combinou alguma data? (opcional)', ex?.dueDate || '')}</div>
       <p class="tiny">Dívidas com pessoas viram Quick Wins: quitá-las primeiro traz alívio emocional imediato.</p>`;
   } else if (kind === 'financing') {
     body = `
       ${textField('beneficiary', 'O que é', ex?.beneficiary || '', { required: true, placeholder: 'Ex.: Empréstimo pessoal, moto, carro' })}
-      ${moneyField('amount', 'Saldo devedor total', ex?.balance ?? '', { big: true })}
-      <div class="grid-2">
-        ${moneyField('installmentAmount', 'Valor da parcela', ex?.installmentAmount ?? '')}
-        ${numField('installmentsLeft', 'Parcelas restantes', ex?.installmentsLeft ?? '', { step: 1 })}
-      </div>
-      <div class="grid-2">
-        ${dateField('dueDate', 'Próximo vencimento', ex?.dueDate || '')}
-        ${numField('monthlyInterestPercent', 'Juros ao mês (%)', ex?.monthlyInterestPercent ?? '', { placeholder: 'Ex.: 6,9' })}
-      </div>
+      ${moneyField('amount', 'Saldo devedor total', ex?.balance ?? '', { big: true, hint: 'Se não souber, deixe em branco: o app soma as parcelas que faltam.' })}
+      ${installmentBlock(ex, { forced: true })}
+      ${numField('monthlyInterestPercent', 'Juros ao mês (%)', ex?.monthlyInterestPercent ?? '', { placeholder: 'Ex.: 6,9' })}
       ${checkField('isWorkTool', 'É ferramenta de trabalho (moto, carro de app, máquina, insumo)', ex?.isWorkTool, 'Ferramenta de trabalho vai para a Linha de Frente: sem ela, a renda para.')}
       ${legacyBlock(ex?.isLegacy)}`;
   } else if (kind === 'vital') {
@@ -253,6 +337,7 @@ export function openObligationWizard(kind, existingId = null) {
     onMount(el, close) {
       const form = el.querySelector('form');
       bindSegments(form);
+      bindInstallments(form);
       const shared = form.querySelector('[name=isShared]');
       if (shared) shared.onchange = () => { form.querySelector('#share-box').hidden = !shared.checked; };
 
@@ -268,7 +353,11 @@ export function openObligationWizard(kind, existingId = null) {
           }
           const due = p.dueDate || p.dueDateHint;
           status.innerHTML = `<span class="c-cyan">✓ Boleto válido</span> · ${esc(p.bankName || p.segmentName || `banco ${p.bankCode}`)}${p.amount != null ? ` · ${brl(p.amount)}` : ''}${due ? ` · vence ${dateHuman(due)}` : ''}${p.warnings.length ? `<br>${esc(p.warnings[p.warnings.length - 1])}` : ''}`;
-          if (p.amount != null && !form.amount.value) form.amount.value = String(p.amount).replace('.', ',');
+          if (p.amount != null && !form.amount.value) {
+            form.amount.value = String(p.amount).replace('.', ',');
+            form.amount.dataset.auto = '1';
+            form.amount.dispatchEvent(new Event('change'));
+          }
           if (due && !form.dueDate.value) form.dueDate.value = due;
           if (due && !form.protestDeadline.value) form.protestDeadline.value = addDays(due, 5);
           if (p.kind === 'collection') form.canProtest.checked = false;
@@ -300,9 +389,14 @@ async function buildObligationChanges(kind, v, ex) {
   const today = store.today;
   const changes = { obligations: [], accounts: [] };
   const base = ex ? { ...ex } : { id: uid('obl'), profileId: pid, createdAt: new Date().toISOString(), status: 'open', zone: null };
-  const amount = parseMoney(v.amount);
+  let amount = parseMoney(v.amount);
   const need = (cond, msg) => { if (!cond) throw new Error(msg); };
   const legacy = Boolean(v.isLegacy);
+  let ins = { fields: {}, nextDue: null };
+  if (kind !== 'vital') {
+    ins = readInstallments(v, kind === 'card' ? parseMoney(v.balance) : amount);
+    if (kind !== 'card') amount = ins.amount;
+  }
 
   if (kind === 'boleto') {
     need(v.beneficiary?.trim(), 'Diga quem cobra o boleto.');
@@ -315,6 +409,7 @@ async function buildObligationChanges(kind, v, ex) {
     Object.assign(base, {
       type: legacy ? 'legacy_debt' : 'boleto', bucket: v.bucket, beneficiary: v.beneficiary.trim(), barcode: v.barcode?.replace(/\s+/g, ' ').trim() || null,
       balance: amount, principalAmount: legacy ? (parseMoney(v.principalAmount) || amount) : (ex ? ex.principalAmount : amount), dueDate: due, isLegacy: legacy,
+      ...ins.fields,
       rules: {
         finePercent: num(v.finePercent), dailyInterestPercent: num(v.dailyInterestPercent), canProtest: Boolean(v.canProtest) && !legacy,
         protestDeadline: v.canProtest ? (v.protestDeadline || (due ? addDays(due, 5) : null)) : null, estimatedProtestFee: parseMoney(v.fee) || 210,
@@ -323,7 +418,7 @@ async function buildObligationChanges(kind, v, ex) {
     if (!ex) base.principalAmount = legacy ? (parseMoney(v.principalAmount) || amount) : amount;
   } else if (kind === 'card') {
     need(v.name?.trim(), 'Dê um nome ao cartão.');
-    const balance = parseMoney(v.balance);
+    const balance = ins.amount;
     let accountId = ex?.accountId || null;
     if (!legacy && (v.limitTotal !== undefined)) {
       const accEx = accountId ? store.state.accounts.find((a) => a.id === accountId) : null;
@@ -337,7 +432,7 @@ async function buildObligationChanges(kind, v, ex) {
     }
     if (balance > 0 || ex) {
       const dueDay = num(v.dueDay);
-      let due = ex?.dueDate || null;
+      let due = ins.nextDue || ex?.dueDate || null;
       if (!due && dueDay) {
         const [y, m] = today.split('-').map(Number);
         const cand = `${y}-${String(m).padStart(2, '0')}-${String(Math.min(dueDay, 28)).padStart(2, '0')}`;
@@ -347,6 +442,7 @@ async function buildObligationChanges(kind, v, ex) {
         type: legacy ? 'legacy_debt' : 'card_debt', bucket: 'pessoal', beneficiary: legacy ? v.name.trim() : `Fatura ${v.name.trim()}`, accountId: legacy ? null : accountId,
         balance, principalAmount: legacy ? (parseMoney(v.principalAmount) || balance) : (ex?.principalAmount || balance),
         monthlyInterestPercent: num(v.monthlyInterestPercent), dueDate: due, isLegacy: legacy, rules: {},
+        ...ins.fields,
       });
     } else {
       return changes;
@@ -356,7 +452,8 @@ async function buildObligationChanges(kind, v, ex) {
     need(amount > 0, 'Informe o valor.');
     Object.assign(base, {
       type: 'personal_debt', bucket: v.bucket, beneficiary: v.beneficiary.trim(), balance: amount,
-      principalAmount: ex ? ex.principalAmount : amount, dueDate: v.dueDate || null, rules: {},
+      principalAmount: ex ? Math.max(ex.principalAmount, amount) : amount, dueDate: ins.nextDue || v.dueDate || null, rules: {},
+      ...ins.fields,
     });
   } else if (kind === 'financing') {
     need(v.beneficiary?.trim(), 'Diga o que é o financiamento.');
@@ -364,8 +461,8 @@ async function buildObligationChanges(kind, v, ex) {
     Object.assign(base, {
       type: legacy ? 'legacy_debt' : 'financing', bucket: 'pessoal', beneficiary: v.beneficiary.trim(), balance: amount,
       principalAmount: legacy ? (parseMoney(v.principalAmount) || amount) : (ex ? ex.principalAmount : amount),
-      installmentAmount: parseMoney(v.installmentAmount) || null, installmentsLeft: v.installmentsLeft === '' ? null : num(v.installmentsLeft),
-      monthlyInterestPercent: num(v.monthlyInterestPercent), dueDate: v.dueDate || null, isWorkTool: Boolean(v.isWorkTool), isLegacy: legacy, rules: {},
+      ...ins.fields,
+      monthlyInterestPercent: num(v.monthlyInterestPercent), dueDate: ins.nextDue || ex?.dueDate || null, isWorkTool: Boolean(v.isWorkTool), isLegacy: legacy, rules: {},
     });
   } else if (kind === 'vital') {
     need(v.beneficiary?.trim(), 'Qual é a conta?');
@@ -400,9 +497,11 @@ export function openObligationDetail(id) {
     item.riskParts.protestRisk > 0 ? ['Risco de cartório', `<span class="c-magenta">${brl(item.riskParts.protestRisk)}</span>`] : null,
     item.bleed > 0 ? ['Sangria por mês', `<span class="c-magenta">${brl(item.bleed)} · ${life(item.bleed)} de vida</span>`] : null,
     ['Total hoje', `<b>${brl(item.updated)}</b>`],
-    ob.dueDate ? ['Vencimento', dateHuman(ob.dueDate)] : null,
+    ob.dueDate ? ['Vencimento', item.late > 0
+      ? `<span class="c-magenta"><b>${dateHuman(ob.dueDate)} · atrasada há ${item.late} dia${item.late > 1 ? 's' : ''}</b></span>`
+      : item.dueSoon ? `<span class="c-amber">${dateHuman(ob.dueDate)} · ${item.daysToDue === 0 ? 'vence hoje' : `vence em ${item.daysToDue} dia${item.daysToDue > 1 ? 's' : ''}`}</span>` : dateHuman(ob.dueDate)] : null,
     item.isProtestable && ob.rules.protestDeadline ? ['Prazo do cartório', dateHuman(ob.rules.protestDeadline)] : null,
-    ob.installmentAmount ? ['Parcela', `${brl(ob.installmentAmount)}${ob.installmentsLeft != null ? ` · faltam ${ob.installmentsLeft}` : ''}`] : null,
+    item.installment ? ['Parcelas', `${item.installment.total ? `${item.installment.paid} de ${item.installment.total} pagas · ` : ''}faltam ${item.installment.left ?? '?'}x de ${brl(item.installment.amount)}`] : null,
     ob.isShared ? ['Sua cota', brl(item.open)] : null,
   ].filter(Boolean);
 
@@ -410,8 +509,11 @@ export function openObligationDetail(id) {
     title: ob.beneficiary,
     body: `<div class="stack">
       <div class="row wrap" style="gap:6px"><span class="pill ${item.zone === 'frontline' ? 'magenta' : item.zone === 'battlefield' ? 'amber' : ''}">${item.zone === 'frontline' ? 'Zona 1 · Linha de Frente' : item.zone === 'battlefield' ? 'Zona 2 · Campo de Batalha' : 'Zona 3 · Quarentena'}</span>
-        <span class="pill">${esc(item.reason)}</span></div>
-      <div class="card tight">${rows.map(([k, v]) => `<div class="row between small" style="padding:5px 0"><span class="c-ink2">${k}</span><span class="num">${v}</span></div>`).join('')}</div>
+        <span class="pill">${esc(item.reason)}</span>
+        ${item.late > 0 ? `<span class="pill magenta">${icon('alert')}Atrasada há ${item.late} dia${item.late > 1 ? 's' : ''}</span>` : ''}</div>
+      ${item.late > 0 && item.riskParts.accrued > 0 ? `<div class="alert">${icon('alert')}<div>O atraso já somou <b>${brl(item.riskParts.accrued)}</b> em multa e juros — e continua crescendo todo dia.</div></div>` : ''}
+      <div class="card tight">${rows.map(([k, v]) => `<div class="row between small" style="padding:5px 0"><span class="c-ink2">${k}</span><span class="num">${v}</span></div>`).join('')}
+        ${item.installment ? installmentBar(item.installment) : ''}</div>
       ${item.alerts.map((a) => `<div class="alert">${icon('alert')}<div>${esc(a.text)}</div></div>`).join('')}
       ${ob.barcode ? `<button class="btn sm ghost" data-copy="${esc(ob.barcode)}" type="button">${icon('copy')}Copiar linha digitável</button>` : ''}
       <div class="grid-2">
@@ -469,8 +571,12 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
   openSheet({
     title: protest ? 'Protesto Segurado' : settle ? 'Quitação com desconto' : 'Registrar pagamento',
     body: `<form novalidate>
-      <div class="small">${esc(item.ob.beneficiary)}${item.ob.isShared ? ' · sua cota' : ''}</div>
-      ${moneyField('amount', settle ? 'Valor que você vai pagar para quitar tudo' : 'Valor pago', settle ? round2(item.updated * (1 - (item.ob.settlementDiscountPercent || 80) / 100)) : item.dueNow, { big: true })}
+      <div class="small">${esc(item.ob.beneficiary)}${item.ob.isShared ? ' · sua cota' : ''}${item.installment ? ` · ${esc(item.installment.label)}` : ''}</div>
+      ${moneyField('amount', settle ? 'Valor que você vai pagar para quitar tudo' : item.installment ? 'Valor pago (uma parcela já vem preenchida)' : 'Valor pago', settle ? round2(item.updated * (1 - (item.ob.settlementDiscountPercent || 80) / 100)) : item.dueNow, { big: true })}
+      ${item.installment && !settle ? `<div class="row wrap" style="gap:8px">
+        <button type="button" class="btn sm" data-fill="${item.dueNow}">1 parcela · ${brl(item.dueNow)}</button>
+        ${(item.installment.left ?? 0) > 1 ? `<button type="button" class="btn sm ghost" data-fill="${item.updated}">Quitar tudo · ${brl(item.updated)}</button>` : ''}
+      </div>` : ''}
       ${accounts.length ? accountSelect('accountId', accounts, accounts[0]?.id, { includeOutside: true, label: 'Saiu de qual conta' }) : '<input type="hidden" name="accountId" value="">'}
       ${dateField('date', 'Data do pagamento', store.today)}
       ${item.zone !== 'frontline' || settle ? checkField('settle', 'Este valor quita a dívida inteira (acordo com desconto)', settle) : ''}
@@ -480,12 +586,17 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
     onMount(el, close) {
       const form = el.querySelector('form');
       const prev = el.querySelector('#pay-preview');
+      el.querySelectorAll('[data-fill]').forEach((b) => b.addEventListener('click', () => {
+        form.amount.value = String(round2(Number(b.dataset.fill))).replace('.', ',');
+        form.amount.dispatchEvent(new Event('input', { bubbles: true }));
+      }));
       const preview = () => {
         const v = formData(form);
         const amount = parseMoney(v.amount);
         try {
           const { rescue, fullForProfile } = payObligation(store.state, { obligationId: id, profileId: pid, amount, accountId: v.accountId || null, date: v.date || store.today, settle: Boolean(v.settle) }, { today: store.today, btcPrice: store.btcPrice() });
-          prev.innerHTML = `<div class="row between"><span class="small">${fullForProfile ? 'Quita esta conta' : `Restam ${brl(Math.max(0, item.open - amount))}`}</span>
+          const nextInst = item.installment && !fullForProfile && amount >= item.installment.amount - 0.01;
+          prev.innerHTML = `<div class="row between"><span class="small">${fullForProfile ? 'Quita esta conta' : nextInst ? `Parcela paga · restam ${brl(Math.max(0, item.open - amount))}` : `Restam ${brl(Math.max(0, item.open - amount))}`}</span>
             <span class="num c-cyan"><b>+${lifeTime(rescue.minutes)}</b> de vida</span></div>
             ${rescue.parts.map((p) => `<div class="tiny">${esc(p.label)}: ${brl(p.amount)}</div>`).join('') || '<div class="tiny">Sem multa/juros evitados nesta data.</div>'}`;
         } catch (err) { prev.textContent = err.message; }

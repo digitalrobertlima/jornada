@@ -16,6 +16,8 @@ Especificação mestre: [`SPEC.md`](./SPEC.md).
 - **Simulador "Caiu Dinheiro"**: fatia o valor entre micro-escudo e Alvo nº 1 e mostra o totem encolhendo e as horas subindo antes de confirmar.
 - **Leitor de boleto offline**: 47, 48 e 44 dígitos, Módulo 10/11 e a virada do fator de vencimento de 22/02/2025.
 - **Contas polimórficas:** conta corrente (liquidez real), benefício restrito, cartão de crédito com detector de corte de limite e cartão com garantia (modelo Bipa), cujo rendimento CDI e cashback viram sats.
+- **Parcelamento em qualquer dívida** (Pix/Pessoa, boleto/carnê, cartão, financiamento): o app cobra uma parcela por vez, mostra "parcela 1/3" com barra de progresso e avança vencimento e prazo de cartório a cada parcela paga.
+- **Atraso visível:** selo "Atrasada", anel magenta no totem, quanto o atraso já somou em multa e juros, aviso no HUD e contador na aba; selo âmbar quando vence em até 3 dias.
 - **Multi-perfil + Modo Casa:** contas da casa divididas em cotas, com cobertura conjunta.
 - **4 Eras** e **Trava de Soberania**: nenhum real vai para cripto com Linha de Frente aberta ou Linha d'Água furada.
 - **Cotações ao vivo** (BTC/BRL e CDI) buscadas direto do navegador em APIs públicas, com várias fontes de reserva, cache local e valor manual.

@@ -4,7 +4,7 @@
 //  Zona 3 — Domo de Quarentena: dívidas antigas estouradas por juros compostos
 
 import { diffDays } from '../core/dates.js';
-import { VITAL_KINDS } from '../core/model.js';
+import { VITAL_KINDS, installmentInfo } from '../core/model.js';
 import { num, round2 } from '../core/util.js';
 import { overdueAmount, monthlyBleed } from './lifeHours.js';
 
@@ -105,8 +105,9 @@ export function buildItem(ob, profileId, ctx) {
   const protestRisk = rules.canProtest && !ob.protested && !ob.protestRescued ? num(rules.estimatedProtestFee) : 0;
   const bleed = monthlyBleed({ ...ob, balance: open }, today);
 
-  const isFinancing = ob.type === 'financing' && num(ob.installmentAmount) > 0;
-  const dueNow = isFinancing ? round2(Math.min(num(ob.installmentAmount), updated)) : updated;
+  // dívida parcelada (qualquer tipo): o que vence agora é a parcela, não o saldo inteiro
+  const installment = ob.isShared ? null : installmentInfo(ob);
+  const dueNow = installment ? round2(Math.min(installment.amount, updated)) : updated;
 
   const account = ob.accountId ? ctx.accountsById?.get(ob.accountId) : null;
   const alerts = [];
@@ -139,6 +140,8 @@ export function buildItem(ob, profileId, ctx) {
     late,
     urgencyDays,
     alerts,
+    installment,
+    dueSoon: daysToDue !== null && daysToDue >= 0 && daysToDue <= 3,
     isVital: ob.type === 'vital_fixed' || ob.isWorkTool,
     isProtestable: Boolean(rules.canProtest && !ob.protested),
   };

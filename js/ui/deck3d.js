@@ -3,7 +3,7 @@
 //  2. Totens volumétricos da dívida — base sólida (principal) + topo translúcido pulsante (juros, multa, cartório).
 
 import { esc } from './dom.js';
-import { brl, brlShort, lifeTime } from '../core/format.js';
+import { brl, brlShort, lifeTime, dateShort } from '../core/format.js';
 import { ACCOUNT_TYPES } from '../core/model.js';
 import { icon } from './icons.js';
 
@@ -129,7 +129,7 @@ export function bindDeck(root) {
 
 // ---------------------------------------------------------------- Totens
 
-const MAX_H = 168;
+const MAX_H = 150;
 const MIN_H = 12;
 
 /** Alturas da base (principal) e do topo (risco) em px, escala raiz para dívidas pequenas aparecerem. */
@@ -158,19 +158,36 @@ export function setTotem(sceneEl, { hb, ht }) {
   risk.classList.toggle('none', ht <= 0);
 }
 
+/** Barra de progresso das parcelas: um segmento por parcela (até 12), contínua acima disso. */
+export function installmentBar(inst) {
+  if (!inst?.total) return '';
+  const label = `${inst.paid} de ${inst.total} parcelas pagas`;
+  if (inst.total > 12) {
+    return `<div class="inst-bar cont" role="img" aria-label="${label}"><i class="on" style="width:${Math.round((inst.paid / inst.total) * 100)}%"></i></div>`;
+  }
+  const segs = Array.from({ length: inst.total }, (_, k) => `<i class="${k < inst.paid ? 'on' : k === inst.paid ? 'cur' : ''}"></i>`).join('');
+  return `<div class="inst-bar" role="img" aria-label="${label}">${segs}</div>`;
+}
+
 export function renderTotem(item, { maxValue, order, isTarget, rate }) {
   const h = totemHeights(item.principalPart, item.riskLayer, maxValue);
   const bleedTxt = item.bleed > 0 && rate > 0 ? `sangra ${lifeTime(item.bleed / rate * 60)}/mês` : item.riskParts.protestRisk ? 'risco de cartório' : '';
-  return `<button type="button" class="totem${isTarget ? ' target' : ''}" data-act="obligation-open" data-id="${esc(item.id)}"
-      aria-label="${esc(item.ob.beneficiary)}: ${brl(item.updated)}">
+  const late = item.late > 0;
+  const status = late
+    ? `<span class="pill magenta">${icon('alert')}Atrasada</span>`
+    : item.dueSoon ? `<span class="pill amber">${icon('clock')}${item.daysToDue === 0 ? 'Vence hoje' : item.daysToDue === 1 ? 'Vence amanhã' : `Vence em ${item.daysToDue}d`}</span>` : '';
+  return `<button type="button" class="totem${isTarget ? ' target' : ''}${late ? ' late' : ''}" data-act="obligation-open" data-id="${esc(item.id)}"
+      aria-label="${esc(item.ob.beneficiary)}: ${brl(item.updated)}${late ? `, atrasada há ${item.late} dias` : ''}">
     <div class="stage" data-totem="${esc(item.id)}" data-hb="${h.hb}" data-ht="${h.ht}">
       <span class="order">#${order}</span>
-      ${item.quickWin ? '<span class="pill cyan qw">Quick Win</span>' : ''}
+      <span class="badges">${item.quickWin ? '<span class="pill cyan">Quick Win</span>' : ''}${status}</span>
       ${totemSceneHTML(h)}
     </div>
     <div class="cap">
       <div class="name">${esc(item.ob.beneficiary)}</div>
       <div class="val num">${brlShort(item.updated)}</div>
+      ${late ? `<div class="late-txt">venceu ${dateShort(item.ob.dueDate)} · há ${item.late} dia${item.late > 1 ? 's' : ''}</div>` : ''}
+      ${item.installment ? `<div class="inst">${esc(item.installment.label)} · ${brlShort(item.installment.amount)}</div>${installmentBar(item.installment)}` : ''}
       ${bleedTxt ? `<div class="bleed">${bleedTxt}</div>` : ''}
     </div>
   </button>`;
