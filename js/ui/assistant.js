@@ -2,14 +2,14 @@
 // Toda mudança aparece como prévia e só acontece quando a pessoa toca em "Confirmar". Tudo tem desfazer.
 
 import { store } from '../store.js';
-import { esc, toast, haptic, celebrate } from './dom.js';
+import { vault } from '../db/vault.js';
+import { esc, toast, haptic, celebrate, openSheet, confirmSheet } from './dom.js';
 import { icon } from './icons.js';
-import { brl, dateHuman } from '../core/format.js';
+import { dateHuman } from '../core/format.js';
 import { parseMoneyBR, parseDateBR } from '../core/text.js';
 import { createTools, runTool } from '../agent/tools.js';
 import { parseBasic, HELP } from '../agent/basic.js';
-import { agentTurn, buildSystemPrompt, snapshotLine } from '../agent/protocol.js';
-import { pendingForecasts } from '../engines/forecast.js';
+import { agentTurn, buildSystemPrompt } from '../agent/protocol.js';
 import { recipeCardHTML, maybeAskNotifications } from '../recipes/ui.js';
 import * as AI from '../agent/llm.js';
 
@@ -39,6 +39,129 @@ const api = {
 };
 const tools = createTools(api);
 
+// ---------------------------------------------------------------- conversas salvas
+// Cada conversa fica guardada no cofre local do celular e só some quando a pessoa apaga.
+
+const CHATS_KEY = 'chats';
+const MAX_MSGS = 400;
+let chats = null;
+let current = null;
+let primed = false; // a IA já recebeu o resumo desta conversa nesta sessão?
+let saveTimer = null;
+
+async function loadChats() {
+  if (chats) return chats;
+  try { chats = await vault.getMeta(CHATS_KEY, []); } catch { chats = []; }
+  if (!Array.isArray(chats)) chats = [];
+  return chats;
+}
+
+function saveSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 400);
+}
+
+async function saveNow() {
+  clearTimeout(saveTimer);
+  if (!chats) return;
+  try { await vault.setMeta(CHATS_KEY, chats); } catch { /* sem espaço: segue */ }
+}
+
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveNow(); });
+window.addEventListener('pagehide', () => { saveNow(); });
+
+const myChats = () => (chats || []).filter((c) => c.profileId === store.pid).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+function newChat() {
+  const c = { id: `chat_${Date.now().toString(36)}`, profileId: store.pid, title: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] };
+  chats.unshift(c);
+  current = c;
+  primed = true; // conversa nova: nada para resumir
+  vault.setMeta('chatActive', c.id).catch(() => {});
+  return c;
+}
+
+function record(m) {
+  if (!current) return null;
+  current.messages.push(m);
+  if (current.messages.length > MAX_MSGS) current.messages.splice(0, current.messages.length - MAX_MSGS);
+  current.updatedAt = new Date().toISOString();
+  if (!current.title && m.role === 'user') current.title = m.text.slice(0, 60);
+  saveSoon();
+  return m;
+}
+
+/** Resumo das últimas falas para a IA continuar a conversa depois que o app foi fechado. */
+function historySummary() {
+  if (!current) return '';
+  const msgs = current.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.text).slice(-8, -1);
+  if (msgs.length < 2) return '';
+  return `[Conversa anterior: ${msgs.map((m) => `${m.role === 'user' ? 'Pessoa' : 'Você'}: ${m.text.replace(/\s+/g, ' ').slice(0, 140)}`).join(' | ')}]`;
+}
+
+async function openChat(id) {
+  await loadChats();
+  const c = myChats().find((x) => x.id === id) || myChats()[0];
+  logEl.innerHTML = '';
+  pendingNote = '';
+  lastAsk = null;
+  if (!c) { newChat(); greet(); renderSetup(); return; }
+  current = c;
+  primed = false;
+  vault.setMeta('chatActive', c.id).catch(() => {});
+  chat?.reset?.().catch(() => {});
+  for (const m of c.messages) renderSaved(m);
+  renderSetup();
+  scroll();
+}
+
+function renderSaved(m) {
+  if (m.role === 'user' || m.role === 'assistant') addBubble(m.role, m.text, { save: false });
+  else if (m.role === 'tool') addToolLine(m.name, m.text, { save: false });
+  else if (m.role === 'card') renderCard(m);
+}
+
+function openChatsSheet() {
+  const list = myChats();
+  openSheet({
+    title: 'Suas conversas',
+    body: `<div class="stack">
+      <button class="btn primary block" type="button" data-new>${icon('plus')}Nova conversa</button>
+      ${list.map((c) => `<div class="card tight row" style="gap:8px">
+        <button class="grow linkish" type="button" data-open="${esc(c.id)}" style="text-align:left;text-decoration:none;color:inherit">
+          <b class="small">${esc(c.title || 'Conversa sem título')}</b>${c.id === current?.id ? ' <span class="tiny c-cyan">· aberta</span>' : ''}
+          <span class="tiny" style="display:block">${new Date(c.updatedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${c.messages.filter((m) => m.role === 'user').length} mensagens</span></button>
+        <button class="icon-btn" type="button" data-del="${esc(c.id)}" aria-label="Apagar conversa">${icon('trash')}</button></div>`).join('')}
+      <p class="tiny">As conversas ficam só no seu celular e nunca são apagadas sozinhas.</p></div>`,
+    onMount(el, close) {
+      el.querySelector('[data-new]').onclick = () => { close(); startNewChat(); };
+      el.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => { close(); openChat(b.dataset.open); }));
+      el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+        const c = chats.find((x) => x.id === b.dataset.del);
+        close();
+        if (!c) return;
+        const ok = await confirmSheet({ title: 'Apagar esta conversa?', text: `"${esc(c.title || 'Conversa sem título')}" some do celular. O que você fez no app por ela continua valendo.`, confirmLabel: 'Apagar', danger: true });
+        if (!ok) return;
+        chats = chats.filter((x) => x.id !== c.id);
+        await saveNow();
+        if (current?.id === c.id) { current = null; await openChat(null); }
+        toast('Conversa apagada.');
+      }));
+    },
+  });
+}
+
+function startNewChat() {
+  if (current && !current.messages.some((m) => m.role === 'user')) return; // já está numa conversa vazia
+  logEl.innerHTML = '';
+  pendingNote = '';
+  lastAsk = null;
+  chat?.reset?.().catch(() => {});
+  newChat();
+  greet();
+  renderSetup();
+}
+
 export function initAssistant(h) {
   hooks = { ...hooks, ...h };
 }
@@ -58,7 +181,8 @@ function build() {
     <header class="as-head">
       <button class="icon-btn" type="button" data-as="close" aria-label="Voltar">${icon('back')}</button>
       <div class="grow"><b>Assistente</b><div class="tiny" data-as="status"></div></div>
-      <button class="icon-btn" type="button" data-as="clear" aria-label="Limpar conversa" title="Limpar conversa">${icon('trash')}</button>
+      <button class="icon-btn" type="button" data-as="new" aria-label="Nova conversa" title="Nova conversa">${icon('plus')}</button>
+      <button class="icon-btn" type="button" data-as="list" aria-label="Suas conversas" title="Suas conversas">${icon('chat')}</button>
     </header>
     <div class="as-log" data-as="log" aria-live="polite"></div>
     <div class="as-chips" data-as="chips">${SUGGESTIONS.map((s) => `<button type="button" class="chip-btn">${esc(s)}</button>`).join('')}</div>
@@ -70,7 +194,8 @@ function build() {
   logEl = panel.querySelector('[data-as="log"]');
   inputEl = panel.querySelector('textarea');
   panel.querySelector('[data-as="close"]').onclick = closeAssistant;
-  panel.querySelector('[data-as="clear"]').onclick = clearChat;
+  panel.querySelector('[data-as="new"]').onclick = startNewChat;
+  panel.querySelector('[data-as="list"]').onclick = openChatsSheet;
   panel.querySelector('[data-as="chips"]').addEventListener('click', (e) => {
     const b = e.target.closest('.chip-btn');
     if (b) send(b.textContent);
@@ -107,11 +232,19 @@ export function openAssistant(prefill = '') {
   document.querySelectorAll('#toasts .toast').forEach((t) => t.remove());
   try { history.pushState({ assistant: true }, ''); } catch { /* ignore */ }
   requestAnimationFrame(() => panel.classList.add('open'));
-  if (!logEl.children.length) greet();
-  renderSetup();
+  const ready = (async () => {
+    await loadChats();
+    if (!current || current.profileId !== store.pid) {
+      let active = null;
+      try { active = await vault.getMeta('chatActive', null); } catch { /* ignore */ }
+      await openChat(active);
+    } else renderSetup();
+  })();
   refreshAI();
-  if (prefill) send(prefill);
-  else setTimeout(() => inputEl.focus({ preventScroll: true }), 250);
+  ready.then(() => {
+    if (prefill) send(prefill);
+    else setTimeout(() => inputEl.focus({ preventScroll: true }), 250);
+  });
 }
 
 export function closeAssistant(fromHistory = false) {
@@ -129,15 +262,6 @@ export function assistantNote(text) {
   if (assistantOpen()) addBubble('assistant', text);
 }
 
-function clearChat() {
-  logEl.innerHTML = '';
-  pendingNote = '';
-  lastAsk = null;
-  chat?.reset?.().catch(() => {});
-  greet();
-  renderSetup();
-}
-
 function greet() {
   const name = store.profile?.name ? `, ${store.profile.name.split(' ')[0]}` : '';
   addBubble('assistant', `Oi${name}! Me conta o que aconteceu com o seu dinheiro ou pergunte o que fazer. Eu uso o app por você e sempre te mostro antes de mudar qualquer coisa.`);
@@ -153,7 +277,8 @@ function textHTML(t) {
   return esc(t).replace(/\n/g, '<br>');
 }
 
-function addBubble(role, text) {
+function addBubble(role, text, { save = true } = {}) {
+  if (save && text) record({ role, text });
   const el = document.createElement('div');
   el.className = `as-msg ${role}`;
   el.innerHTML = textHTML(text);
@@ -171,7 +296,8 @@ function addTyping() {
   return el;
 }
 
-function addToolLine(name, text) {
+function addToolLine(name, text, { save = true } = {}) {
+  if (save) record({ role: 'tool', name, text });
   const el = document.createElement('details');
   el.className = 'as-tool';
   el.innerHTML = `<summary>${icon('info')} consultei: ${esc(name.replace(/_/g, ' '))}</summary><div>${textHTML(text)}</div>`;
@@ -222,8 +348,37 @@ function followUp(ask, text) {
   return { tool: ask.tool, args };
 }
 
+/** Cartão salvo (conversa reaberta): mostra o que aconteceu; o Desfazer funciona enquanto a ação estiver no histórico. */
+function renderCard(m) {
+  const card = document.createElement('div');
+  card.className = 'as-card';
+  const canUndo = m.status === 'done' && m.actionId && (store.meta.journal || []).some((a) => a.id === m.actionId);
+  const foot = m.status === 'done' ? `<span class="small c-cyan">${icon('check')} ${esc(m.result || 'Feito.')}</span>${canUndo ? '<button class="btn sm ghost" type="button" data-undo>Desfazer</button>' : ''}`
+    : m.status === 'undone' ? '<span class="small">Desfeito. Tudo voltou como era.</span>'
+      : m.status === 'canceled' ? '<span class="tiny">Cancelado. Nada mudou.</span>'
+        : '<span class="tiny">Não foi confirmado antes de fechar o app. Peça de novo se quiser.</span>';
+  card.innerHTML = `<span class="eyebrow">${m.status === 'pending' ? 'Ficou sem resposta' : 'Confere antes de eu fazer'}</span><b>${esc(m.title)}</b>
+    <ul>${(m.lines || []).map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+    ${m.warn ? `<div class="alert warn">${icon('alert')}<div>${esc(m.warn)}</div></div>` : ''}
+    <div class="row" data-btns style="gap:8px;margin-top:4px">${foot}</div>`;
+  logEl.appendChild(card);
+  const undo = card.querySelector('[data-undo]');
+  if (undo) {
+    undo.onclick = async () => {
+      try {
+        await store.undo(m.actionId);
+        m.status = 'undone';
+        saveSoon();
+        card.querySelector('[data-btns]').innerHTML = '<span class="small">Desfeito. Tudo voltou como era.</span>';
+      } catch (err) { toast(esc(err.message), { tone: 'magenta' }); }
+    };
+  }
+}
+
 function addPreview(toolName, result) {
   const p = result.preview;
+  const rec = record({ role: 'card', title: p.title, lines: p.lines, warn: p.warn || null, status: 'pending' });
+  const mark = (fields) => { if (rec) { Object.assign(rec, fields); saveSoon(); } };
   const d = store.derive();
   const card = document.createElement('div');
   card.className = 'as-card';
@@ -245,6 +400,7 @@ function addPreview(toolName, result) {
       haptic(out.celebrate ? [18, 40, 18, 40, 60] : 12);
       btns.innerHTML = `<span class="small c-cyan">${icon('check')} ${esc(out.text)}</span>${out.actionId ? '<button class="btn sm ghost" type="button" data-undo>Desfazer</button>' : ''}`;
       pendingNote = `[A pessoa confirmou "${p.title}": ${p.lines[0]}. Feito.]`;
+      mark({ status: 'done', result: out.text, actionId: out.actionId || null });
       const undo = btns.querySelector('[data-undo]');
       if (undo) {
         undo.onclick = async () => {
@@ -252,6 +408,7 @@ function addPreview(toolName, result) {
             await store.undo(out.actionId);
             btns.innerHTML = '<span class="small">Desfeito. Tudo voltou como era.</span>';
             pendingNote = `[A pessoa desfez "${p.title}".]`;
+            mark({ status: 'undone' });
           } catch (err) { toast(esc(err.message), { tone: 'magenta' }); }
         };
       }
@@ -260,12 +417,14 @@ function addPreview(toolName, result) {
       if (out.recipe?.piece === 'lembrete') maybeAskNotifications();
     } catch (err) {
       btns.innerHTML = `<span class="small c-magenta">${esc(err.message || 'Não deu certo.')}</span>`;
+      mark({ status: 'canceled', result: err.message });
     }
     scroll();
   };
   card.querySelector('[data-no]').onclick = () => {
     btns.innerHTML = '<span class="tiny">Cancelado. Nada mudou.</span>';
     pendingNote = `[A pessoa cancelou "${p.title}".]`;
+    mark({ status: 'canceled' });
   };
 }
 
@@ -306,15 +465,8 @@ function navigate(to) {
 }
 
 function snapshot() {
-  const d = store.derive();
-  if (!d) return '';
-  const next = pendingForecasts(store.state, d.pid).find((e) => e.liquidity !== 'locked');
-  return snapshotLine({
-    todayLabel: dateHuman(d.today),
-    cash: { value: d.cash, text: brl(d.cash) },
-    floor: { value: d.wl.floor, text: brl(d.wl.floor) },
-    nextIncome: next ? `${next.note} ${brl(next.amount)} em ${dateHuman(next.date)}` : '',
-  });
+  // só a data: números vão por ferramentas (mandar o saldo junto fazia o modelo achar que era dinheiro entrando)
+  return `[Hoje: ${dateHuman(store.today)}]`;
 }
 
 async function send(text) {
@@ -332,12 +484,12 @@ async function send(text) {
       try { await loadAI(); } catch { /* cai no básico */ }
       typing.remove();
     }
-    if (ai.status === 'ready' && chat) await aiTurn(text);
-    else {
-      const r = parseBasic(text, store.today);
-      if (r.reply) addBubble('assistant', r.reply);
-      else await runAndShow(r.tool, r.args, r.fallback);
-    }
+    // pedidos claros vão direto para a ferramenta certa (rápido e sem chance da IA se confundir);
+    // a IA fica com conversa livre, perguntas abertas e o que o modo básico não entende
+    const r = parseBasic(text, store.today);
+    if (r.tool) await runAndShow(r.tool, r.args, r.fallback);
+    else if (ai.status === 'ready' && chat) await aiTurn(text);
+    else addBubble('assistant', r.reply);
   } catch (err) {
     addBubble('assistant', `Algo deu errado: ${err.message || err}. Tente de novo.`);
   } finally {
@@ -350,22 +502,24 @@ async function aiTurn(text) {
   let bubble = null;
   let typing = addTyping();
   abort = new AbortController();
-  const message = `${pendingNote ? `${pendingNote}\n` : ''}${snapshot()}\n${text}`;
+  const resume = primed ? '' : historySummary();
+  primed = true;
+  const message = `${resume ? `${resume}\n` : ''}${pendingNote ? `${pendingNote}\n` : ''}${snapshot()}\n${text}`;
   pendingNote = '';
   const started = performance.now();
   try {
     await agentTurn({
-      llm: chat, tools, message, signal: abort.signal,
+      llm: chat, tools, message, userText: text, signal: abort.signal,
       onEvent: (ev) => {
         if (ev.type === 'thinking') return;
         if (typing && ev.type !== 'text') { typing.remove(); typing = null; }
         if (ev.type === 'text') {
           if (!ev.text) return;
           if (typing) { typing.remove(); typing = null; }
-          if (!bubble) bubble = addBubble('assistant', '');
+          if (!bubble) bubble = addBubble('assistant', '', { save: false });
           bubble.innerHTML = textHTML(ev.text);
           scroll();
-          if (!ev.partial) bubble = null;
+          if (!ev.partial) { record({ role: 'assistant', text: ev.text }); bubble = null; }
         } else if (ev.type === 'tool') {
           addToolLine(ev.tool, ev.text);
           bubble = null;
@@ -418,6 +572,16 @@ async function refreshAI() {
   }
   ai.status = ai.support.ok ? (st.loaded > 0 ? 'paused' : 'absent') : 'unsupported';
   renderSetup();
+}
+
+/** Ao abrir o app: se a IA já foi baixada, começa a ligar em segundo plano (a conversa fica pronta mais rápido). */
+export async function preloadAI() {
+  try {
+    if (!AI.modelStatus().done || ai.status === 'ready' || ai.loadPromise) return;
+    ai.support = await AI.checkSupport();
+    if (!ai.support.webgpu) return;
+    await loadAI();
+  } catch { /* liga quando abrir o assistente */ }
 }
 
 export function loadAI() {
@@ -495,7 +659,7 @@ function renderSetup(progressOnly = false) {
       <div class="tiny">Deixe o app aberto e a tela ligada. Se cair, continua de onde parou.</div>
       ${ai.status === 'paused' ? `<button class="btn primary sm" type="button" data-as-act="download">${icon('play')}Continuar</button>` : `<button class="btn sm ghost" type="button" data-as-act="pause">${icon('pause')}Pausar</button>`}`;
   } else if (ai.status === 'ready-file' || ai.status === 'loading') {
-    html = `<b>Ligando a IA…</b><div class="tiny">Carregando o modelo na memória. Na primeira vez pode levar até um minuto${navigator.onLine ? '' : ' (e precisa de internet uma única vez para o motor)'}.</div>`;
+    html = `<b>Ligando a IA…</b><div class="tiny">Quando o celular fecha o app, a IA sai da memória e precisa ser carregada de novo (uns segundos). Sua conversa continua salva — pode escrever que eu respondo assim que ela ligar.</div>`;
   } else if (ai.status === 'error' && AI.needsIsolation(ai.error)) {
     html = `<b>Falta um passo para ligar a IA</b><div class="tiny">O motor da IA precisa que o app abra num modo protegido. É só tocar abaixo (o app recarrega e continua de onde parou).</div>
       <button class="btn primary sm" type="button" data-as-act="isolate">${icon('refresh')}Reabrir no modo da IA</button>`;

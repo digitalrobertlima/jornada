@@ -128,3 +128,27 @@ test('turno: limite de passos evita laço infinito', async () => {
   assert.ok(r.reply);
   assert.equal(llm.sent.length, 4);
 });
+
+import { grounded } from '../js/agent/protocol.js';
+
+test('trava: a IA não muda dados sem a pessoa pedir nem inventa valores', () => {
+  assert.equal(grounded('registrar_entrada', { valor: 29.4, descricao: 'Livre hoje' }, 'O que faço agora?'), false);
+  assert.equal(grounded('registrar_entrada', { valor: 29.4 }, 'Olá'), false);
+  assert.equal(grounded('registrar_gasto', { valor: 30, descricao: 'uber' }, 'gastei 30 de uber'), true);
+  assert.equal(grounded('registrar_entrada', { valor: 840 }, 'caiu meu adiantamento'), false);
+  assert.equal(grounded('registrar_entrada', { descricao: 'adiantamento' }, 'caiu meu adiantamento'), true);
+  assert.equal(grounded('prever_entrada', { valor: 2500 }, 'vai cair 2,5 mil dia 5'), true);
+  assert.equal(grounded('pagar', { conta: 'luz' }, 'paguei a luz'), true);
+});
+
+test('turno: ação inventada é recusada e vira resposta normal', async () => {
+  const { tools, state } = setup();
+  const before = JSON.stringify(state.ledger);
+  const llm = fakeLLM(['<acao>{"ferramenta":"registrar_entrada","args":{"valor":29.4,"descricao":"Livre hoje"}}</acao>', 'Oi! Como posso ajudar?']);
+  const events = [];
+  const r = await agentTurn({ llm, tools, message: '[Hoje: qui]\nOlá', userText: 'Olá', onEvent: (e) => events.push(e) });
+  assert.equal(r.reply, 'Oi! Como posso ajudar?');
+  assert.ok(!events.some((e) => e.type === 'preview'));
+  assert.match(llm.sent[1], /Recusado/);
+  assert.equal(JSON.stringify(state.ledger), before);
+});

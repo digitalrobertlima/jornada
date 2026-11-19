@@ -3,6 +3,7 @@
 // devolve <resultado>...</resultado> e o modelo responde. Escrita sempre para na prévia.
 
 import { toolsPrompt, runTool } from './tools.js';
+import { parseMoneyBR } from '../core/text.js';
 
 export const MAX_STEPS = 4;
 
@@ -34,8 +35,14 @@ Pessoa: quero juntar 300 pro gás até dia 10
 Você: <acao>{"ferramenta": "criar_peca", "args": {"peca": "pote", "nome": "Gás", "meta": 300, "prazo": "dia 10"}}</acao>
 Pessoa: como estou?
 Você: <acao>{"ferramenta": "situacao", "args": {}}</acao>
+Pessoa: o que faço agora?
+Você: <acao>{"ferramenta": "o_que_fazer", "args": {}}</acao>
+Pessoa: oi
+Você: Oi! Me conta o que aconteceu com seu dinheiro ou pergunte o que fazer.
 Pessoa: obrigado!
-Você: De nada! Tô aqui quando precisar.`;
+Você: De nada! Tô aqui quando precisar.
+
+IMPORTANTE: só use ferramentas que mudam dados (registrar, pagar, prever, cadastrar, criar, guardar, desfazer) quando a pessoa PEDIR isso com as palavras dela. Pergunta e cumprimento nunca mudam dados.`;
 }
 
 /** Linha de contexto que vai junto de cada mensagem (curta, para caber no celular). */
@@ -119,13 +126,42 @@ export function cleanReply(text) {
     .trim();
 }
 
+const NUM_KEYS = ['valor', 'parcela', 'meta', 'saldo', 'limite', 'minimo'];
+const numbersIn = (text) => {
+  const out = [];
+  const re = /\d[\d.,]*(?:\s*mil)?/gi;
+  let m;
+  while ((m = re.exec(String(text)))) { const v = parseMoneyBR(m[0]); if (v != null) out.push(v); }
+  return out;
+};
+
+/**
+ * A ação de escrita foi mesmo pedida pela pessoa? Modelos pequenos às vezes inventam ações e valores.
+ * Regras: pergunta/cumprimento sem número não muda dados; todo valor da ação tem que estar no que a pessoa escreveu.
+ */
+export function grounded(tool, args, userText) {
+  const t = String(userText || '').trim();
+  if (!t) return false;
+  const nums = numbersIn(t);
+  const isQuestion = /\?\s*$/.test(t) || /^(oi|ol[aá]|bom dia|boa tarde|boa noite|e a[ií]|tudo bem|obrigad)/i.test(t);
+  if (isQuestion && !nums.length && !['criar_peca', 'pedir_funcao'].includes(tool)) return false;
+  for (const k of NUM_KEYS) {
+    if (args?.[k] == null || args[k] === '') continue;
+    const v = typeof args[k] === 'number' ? args[k] : parseMoneyBR(args[k]);
+    if (v == null) continue;
+    if (!nums.some((n) => Math.abs(n - v) < 0.011)) return false;
+  }
+  return true;
+}
+
 /**
  * Um turno da conversa com o modelo.
  * llm.send(texto) → async iterator de pedaços de texto (deltas).
  * Emite eventos por onEvent: text(partial) | tool(read) | preview(write) | ask(erro/escolha) | navigate | done
  */
-export async function agentTurn({ llm, tools, message, onEvent, signal }) {
+export async function agentTurn({ llm, tools, message, userText = message, onEvent, signal }) {
   let msg = message;
+  let refused = 0;
   for (let step = 0; step < MAX_STEPS; step++) {
     let full = '';
     for await (const chunk of llm.send(msg)) {
@@ -139,6 +175,12 @@ export async function agentTurn({ llm, tools, message, onEvent, signal }) {
       const reply = cleanReply(full) || 'Pode repetir de outro jeito?';
       onEvent({ type: 'text', text: reply, partial: false });
       return { reply };
+    }
+    if (tools[action.tool]?.kind === 'write' && !grounded(action.tool, action.args, userText)) {
+      refused += 1;
+      if (refused > 1) break;
+      msg = '<resultado>Recusado: a pessoa não pediu essa mudança (ou não disse esse valor). Responda ao que ela escreveu; para consultar dados use ferramentas de leitura.</resultado>';
+      continue;
     }
     const result = await runTool(tools, action.tool, action.args);
     if (result.error) {
