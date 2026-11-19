@@ -310,8 +310,16 @@ async function notifyDueReminders() {
 function registerSW() {
   if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
   navigator.serviceWorker.register('./sw.js', { scope: './' }).then((reg) => {
+    // versão nova: aplica sozinha quando é seguro (nada aberto sendo preenchido); senão, pergunta
+    const safeToReload = () => !document.querySelector('.sheet') && !document.querySelector('#assistant:not([hidden]) textarea:focus')
+      && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
     const announce = (worker) => {
       worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed' && navigator.serviceWorker.controller && safeToReload()) {
+          try { sessionStorage.setItem('jornada-updated', '1'); } catch { /* ignore */ }
+          worker.postMessage('SKIP_WAITING');
+          return;
+        }
         if (worker.state === 'installed' && navigator.serviceWorker.controller) {
           const zone = document.getElementById('toasts');
           const el = document.createElement('div');
@@ -322,7 +330,12 @@ function registerSW() {
         }
       });
     };
-    if (reg.waiting && navigator.serviceWorker.controller) announce(reg.waiting);
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      if (safeToReload()) reg.waiting.postMessage('SKIP_WAITING'); else announce(reg.waiting);
+    }
+    // app instalado volta do segundo plano sem recarregar: procura versão nova toda vez que reaparece
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
     reg.addEventListener('updatefound', () => announce(reg.installing));
   }).catch(() => { /* sem SW: o app continua funcionando online */ });
   let reloading = false;
@@ -361,6 +374,12 @@ async function boot() {
   notifyDueReminders();
   if (store.state.profiles.length) setTimeout(() => preloadAI(), 2500);
   registerSW();
+  try {
+    if (sessionStorage.getItem('jornada-updated') === '1') {
+      sessionStorage.removeItem('jornada-updated');
+      setTimeout(() => toast('App atualizado para a versão nova.', { tone: 'cyan' }), 600);
+    }
+  } catch { /* ignore */ }
 }
 
 boot();

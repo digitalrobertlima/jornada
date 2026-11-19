@@ -1,7 +1,7 @@
 // Service Worker — Cache-First versionado, com fallback offline.
 // Caminhos relativos ao escopo: funciona em https://digitalrobertlima.github.io/jornada/.
 
-const VERSION = 'jornada-v2.1.1';
+const VERSION = 'jornada-v2.1.2';
 // Motor da IA (biblioteca do CDN): cache próprio, que sobrevive às atualizações do app.
 const AI_LIB_CACHE = 'ai-lib-v1';
 const AI_LIB_HOSTS = ['cdn.jsdelivr.net', 'unpkg.com', 'esm.sh', 'storage.googleapis.com'];

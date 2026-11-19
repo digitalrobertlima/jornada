@@ -1,6 +1,6 @@
 {
   "name": "jornada",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "PWA local-first de resgate financeiro e soberania em Bitcoin. Sem build, sem dependências.",
   "type": "module",
