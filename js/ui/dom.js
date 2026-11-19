@@ -158,3 +158,19 @@ export function bindSegments(root) {
     });
   }
 }
+
+/** Tela de vitória: aparece por cima de tudo por ~3s (toque fecha). */
+export function celebrate({ title, big, sub, blocks = null }) {
+  const el = document.createElement('div');
+  el.className = 'victory';
+  el.setAttribute('role', 'status');
+  const bar = blocks
+    ? `<div class="victory-blocks">${Array.from({ length: blocks.total }, (_, k) => `<i class="${k < blocks.paid ? 'on' : ''}${k === blocks.paid - 1 ? ' new' : ''}"></i>`).join('')}</div>` : '';
+  el.innerHTML = `<div class="victory-card"><div class="victory-ring"></div>${icon('hourglass', 'victory-ic')}
+    <div class="eyebrow">${title}</div><div class="victory-big num">${big}</div><div class="small">${sub}</div>${bar}</div>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  const close = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 350); };
+  el.addEventListener('click', close);
+  setTimeout(close, 3400);
+}

@@ -164,7 +164,13 @@ export function triage(state, profileId, today) {
     if (item) result[item.zone].push(item);
   }
   result.frontline.sort((a, b) => (b.late > 0) - (a.late > 0) || a.urgencyDays - b.urgencyDays || b.updated - a.updated);
-  result.battlefield.sort((a, b) => (b.quickWin - a.quickWin) || a.updated - b.updated);
+  // Campo de Batalha: atrasadas no topo (rodam juros), depois o que vence em até 7 dias,
+  // depois o resto pela data; sem data, Quick Wins e Bola de Neve (menor saldo).
+  const rank = (i) => (i.late > 0 ? 0 : i.daysToDue !== null && i.daysToDue <= 7 ? 1 : i.daysToDue !== null ? 2 : 3);
+  result.battlefield.sort((a, b) => rank(a) - rank(b)
+    || (rank(a) === 0 ? b.late - a.late : 0)
+    || ((rank(a) === 1 || rank(a) === 2) ? a.daysToDue - b.daysToDue : 0)
+    || (b.quickWin - a.quickWin) || a.updated - b.updated);
   result.quarantine.sort((a, b) => a.updated - b.updated);
   result.target = result.frontline[0] || result.battlefield[0] || result.quarantine[0] || null;
   return result;

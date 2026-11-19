@@ -48,8 +48,8 @@ test('triagem: zonas e Alvo nº 1 do perfil 1', () => {
   const t = triage(s, 'prof_01', TODAY);
   assert.deepEqual(t.frontline.map((i) => i.id), ['obl_rent_01', 'obl_luz_01', 'obl_moto_01']);
   assert.equal(t.frontline[0].open, 1250); // cota do aluguel
-  // Quick Wins primeiro (menor saldo), depois Bola de Neve
-  assert.deepEqual(t.battlefield.map((i) => i.id), ['obl_leo_01', 'obl_tia_01', 'obl_emp_01', 'obl_cc_01']);
+  // vence hoje (cartão) → vence em 16 dias (empréstimo) → sem data: Quick Wins pelo menor saldo
+  assert.deepEqual(t.battlefield.map((i) => i.id), ['obl_cc_01', 'obl_emp_01', 'obl_leo_01', 'obl_tia_01']);
   assert.deepEqual(t.quarantine.map((i) => i.id), ['obl_old_02', 'obl_old_01']);
   assert.equal(t.target.id, 'obl_rent_01');
   const card = t.battlefield.find((i) => i.id === 'obl_cc_01');

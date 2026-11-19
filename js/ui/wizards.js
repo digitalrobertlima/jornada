@@ -2,7 +2,7 @@
 
 import { store } from '../store.js';
 import {
-  esc, openSheet, toast, formData, bindSegments, copyText, confirmSheet, haptic,
+  esc, openSheet, toast, formData, bindSegments, copyText, confirmSheet, haptic, celebrate,
 } from './dom.js';
 import { icon } from './icons.js';
 import { brl, lifeTime, parseMoney, dateHuman } from '../core/format.js';
@@ -633,7 +633,7 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
       </div>` : ''}
       ${accounts.length ? accountSelect('accountId', accounts, accounts[0]?.id, { includeOutside: true, label: 'Saiu de qual conta' }) : '<input type="hidden" name="accountId" value="">'}
       ${dateField('date', 'Data do pagamento', store.today)}
-      ${item.zone !== 'frontline' || settle ? checkField('settle', 'Este valor quita a dívida inteira (acordo com desconto)', settle) : ''}
+      ${item.zone !== 'frontline' || settle ? checkField('settle', 'Paguei com desconto e quitei tudo', settle, 'Desconto por antecipação ou acordo: o que você deixou de pagar vira horas de vida.') : ''}
       <div class="card tight" id="pay-preview"></div>
       <button class="btn primary block" type="submit">${icon('check')}Confirmar</button>
     </form>`,
@@ -673,9 +673,18 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
         }, { today: store.today, btcPrice: store.btcPrice() });
         await store.commit(changes);
         close();
-        haptic([18, 40, 18]);
-        const extra = rescue.minutes > 0 ? ` <b class="c-cyan">+${lifeTime(rescue.minutes)}</b> de vida resgatadas.` : '';
-        toast(`${fullyPaid ? 'Conta quitada!' : 'Pagamento registrado.'}${extra}`, { tone: 'cyan', iconName: rescue.minutes > 0 ? 'hourglass' : 'check', timeout: 5200 });
+        haptic([18, 40, 18, 40, 60]);
+        const inst = item.installment;
+        const instPaid = inst && !fullyPaid && amount >= inst.amount - 0.01;
+        const discount = rescue.parts.find((x) => x.kind === 'discount');
+        celebrate({
+          title: fullyPaid ? 'Dívida quitada!' : instPaid ? `Parcela ${inst.current}/${inst.total} paga!` : 'Pagamento registrado',
+          big: rescue.minutes > 0 ? `+${lifeTime(rescue.minutes)}` : brl(amount),
+          sub: rescue.minutes > 0
+            ? `de vida resgatadas${discount ? ` · desconto de ${brl(discount.amount)}` : ''}`
+            : `${esc(item.ob.beneficiary)}${instPaid && inst.left > 1 ? ` · faltam ${inst.left - 1} parcela${inst.left - 1 > 1 ? 's' : ''}` : ''}`,
+          blocks: inst?.total >= 2 && inst.total <= 12 ? { total: inst.total, paid: fullyPaid ? inst.total : inst.paid + (instPaid ? Math.floor((amount + 0.01) / inst.amount) : 0) } : null,
+        });
       };
     },
   });

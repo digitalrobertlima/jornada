@@ -3,7 +3,7 @@
 import { esc } from '../dom.js';
 import { icon } from '../icons.js';
 import { brl, brlShort, dateShort } from '../../core/format.js';
-import { renderTotem, animateTotems } from '../deck3d.js';
+import { renderTotem, animateTotems, towerValue } from '../deck3d.js';
 import { deadlineOf, countdownText } from './hud.js';
 
 const ADD = [
@@ -16,7 +16,7 @@ const ADD = [
 
 export function renderBattle(d) {
   const { tri, rate, eras } = d;
-  const maxValue = Math.max(1, ...tri.battlefield.map((i) => i.principalPart + i.riskLayer));
+  const maxValue = Math.max(1, ...tri.battlefield.map((i) => towerValue(i) + i.riskLayer));
   const shrinking = tri.battlefield.filter((i) => i.alerts.some((a) => a.kind === 'limitShrinking'));
   const bfTotal = tri.battlefield.reduce((s, i) => s + i.updated, 0);
   const bleedTotal = tri.battlefield.reduce((s, i) => s + i.bleed, 0);
@@ -54,12 +54,12 @@ export function renderBattle(d) {
 
     <section class="card">
       <div class="zone-head"><span class="zone-num z2">2</span><div class="grow"><h2 style="font-size:15px">Campo de Batalha</h2>
-        <div class="tiny">Quick Wins com pessoas primeiro, depois Bola de Neve: do menor saldo para o maior.</div></div></div>
+        <div class="tiny">Atrasadas no topo (rodam juros), depois o que vence em até 7 dias. O resto segue a data e a Bola de Neve.</div></div></div>
       ${shrinking.map((i) => `<div class="alert" style="margin-top:12px">${icon('alert')}<div><b>${esc(i.ob.beneficiary)}</b> — ${esc(i.alerts.find((a) => a.kind === 'limitShrinking').text)}</div></div>`).join('')}
       ${tri.battlefield.length ? `<div class="row between small" style="margin-top:12px"><span>Total: <b class="num">${brl(bfTotal)}</b></span>
         ${bleedTotal > 0 && rate > 0 ? `<span class="c-magenta">sangria ≈ ${brl(bleedTotal)}/mês</span>` : ''}</div>
         <div class="totem-field">${totems}</div>
-        <div class="tiny">Base cinza = valor principal · topo magenta pulsante = juros, multa e risco de cartório. Toque num totem para agir.</div>`
+        <div class="tiny">Cinza = valor a pagar · cada bloco é uma parcela (ciano = paga) · topo magenta pulsante = juros, multa e risco de cartório. Toque num totem para agir.</div>`
     : '<div class="empty">Campo limpo. Nenhuma dívida ativa com pessoas ou cartões.</div>'}
     </section>
 

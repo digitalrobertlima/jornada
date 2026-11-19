@@ -141,6 +141,31 @@ export function totemHeights(principal, risk, maxValue) {
   return { hb: Math.round(hb), ht: Math.round(H - hb) };
 }
 
+/** Altura "cheia" da torre: parcelada usa o valor original (todas as parcelas), para as pagas continuarem visíveis. */
+export function towerValue(item) {
+  const inst = item.installment;
+  if (inst?.total >= 2) return Math.max(item.principalPart, inst.amount * inst.total);
+  return item.principalPart;
+}
+
+/** Torre de blocos: um bloco por parcela (até 12), pagas em ciano, a pagar em cinza, juros em magenta no topo. */
+function segmentedSceneHTML(item, maxValue) {
+  const inst = item.installment;
+  const blocks = Math.min(12, inst.total);
+  const paidBlocks = inst.total > 12 ? Math.round((inst.paid / inst.total) * blocks) : inst.paid;
+  const { hb, ht } = totemHeights(towerValue(item), item.riskLayer, maxValue);
+  const gap = 3;
+  const h = Math.max(6, (hb - gap * (blocks - 1)) / blocks);
+  let html = '<div class="scene tower" aria-hidden="true">';
+  for (let k = 0; k < blocks; k++) {
+    const paid = k < paidBlocks;
+    html += `<div class="prism ${paid ? 'paid' : 'base'}" data-k="${k}" style="height:${h.toFixed(1)}px;bottom:${(k * (h + gap)).toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div>`;
+  }
+  const top = blocks * (h + gap) - gap;
+  html += `<div class="prism risk${ht > 0 ? '' : ' none'}" style="height:${ht}px;bottom:${top.toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div></div>`;
+  return { html, paidBlocks };
+}
+
 export function totemSceneHTML({ hb, ht }) {
   return `<div class="scene" aria-hidden="true">
     <div class="prism base" style="--h:${hb}px;height:${hb}px"><i class="b"></i><i class="s"></i><i class="f"></i>${ht > 0 ? '' : '<i class="t"></i>'}</div>
@@ -170,7 +195,9 @@ export function installmentBar(inst) {
 }
 
 export function renderTotem(item, { maxValue, order, isTarget, rate }) {
+  const segmented = item.installment?.total >= 2;
   const h = totemHeights(item.principalPart, item.riskLayer, maxValue);
+  const seg = segmented ? segmentedSceneHTML(item, maxValue) : null;
   const bleedTxt = item.bleed > 0 && rate > 0 ? `sangra ${lifeTime(item.bleed / rate * 60)}/mês` : item.riskParts.protestRisk ? 'risco de cartório' : '';
   const late = item.late > 0;
   const status = late
@@ -178,10 +205,10 @@ export function renderTotem(item, { maxValue, order, isTarget, rate }) {
     : item.dueSoon ? `<span class="pill amber">${icon('clock')}${item.daysToDue === 0 ? 'Vence hoje' : item.daysToDue === 1 ? 'Vence amanhã' : `Vence em ${item.daysToDue}d`}</span>` : '';
   return `<button type="button" class="totem${isTarget ? ' target' : ''}${late ? ' late' : ''}" data-act="obligation-open" data-id="${esc(item.id)}"
       aria-label="${esc(item.ob.beneficiary)}: ${brl(item.updated)}${late ? `, atrasada há ${item.late} dias` : ''}">
-    <div class="stage" data-totem="${esc(item.id)}" data-hb="${h.hb}" data-ht="${h.ht}">
+    <div class="stage" data-totem="${esc(item.id)}" data-hb="${h.hb}" data-ht="${h.ht}"${seg ? ` data-paid="${seg.paidBlocks}"` : ''}>
       <span class="order">#${order}</span>
       <span class="badges">${item.quickWin ? '<span class="pill cyan">Quick Win</span>' : ''}${status}</span>
-      ${totemSceneHTML(h)}
+      ${seg ? seg.html : totemSceneHTML(h)}
     </div>
     <div class="cap">
       <div class="name">${esc(item.ob.beneficiary)}</div>
@@ -199,10 +226,18 @@ export function animateTotems(root, prevHeights) {
   const next = new Map();
   stages.forEach((st) => {
     const id = st.dataset.totem;
-    const target = { hb: Number(st.dataset.hb), ht: Number(st.dataset.ht) };
+    const target = { hb: Number(st.dataset.hb), ht: Number(st.dataset.ht), paid: st.dataset.paid == null ? null : Number(st.dataset.paid) };
     next.set(id, target);
     const prev = prevHeights?.get(id);
     const scene = st.querySelector('.scene');
+    if (target.paid != null) {
+      // torre de parcelas: a parcela que acabou de ser paga acende em ciano
+      if (prev && prev.paid != null && target.paid > prev.paid) {
+        for (let k = prev.paid; k < target.paid; k++) scene.querySelector(`.prism[data-k="${k}"]`)?.classList.add('flash');
+        st.closest('.totem')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      return;
+    }
     if (prev && (prev.hb !== target.hb || prev.ht !== target.ht)) {
       setTotem(scene, prev);
       requestAnimationFrame(() => requestAnimationFrame(() => setTotem(scene, target)));
