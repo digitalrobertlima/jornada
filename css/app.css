@@ -572,3 +572,11 @@ button.era-strip { display: flex; background: none; border: 0; padding: 4px 0; }
 details.more summary { cursor: pointer; padding: 10px 0 2px; color: var(--cyan); list-style: none; }
 details.more summary::-webkit-details-marker { display: none; }
 .tx.tap { display: grid; background: none; border-left: 0; border-right: 0; border-top: 0; padding: 10px 0; }
+
+/* ---------- Nuvem ---------- */
+.icon-btn.cloud { position: relative; }
+.icon-btn.cloud .dot { position: absolute; right: 6px; bottom: 8px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--bg); background: var(--steel-2); }
+.icon-btn.cloud.ok { color: var(--cyan); }
+.icon-btn.cloud.ok .dot { background: var(--cyan); }
+.icon-btn.cloud.pending .dot { background: var(--amber); animation: late-ring 1.4s infinite; }
+.icon-btn.cloud.error .dot { background: var(--magenta); }

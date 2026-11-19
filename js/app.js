@@ -19,6 +19,7 @@ import {
 } from './ui/wizards.js';
 import { openSimulator } from './ui/simulator.js';
 import { openEssentials, openVictories, openEntry } from './ui/sheets.js';
+import { schedulePush, renderCloudButton, syncNow, connectGoogle, cloudConnected, setReloadHook } from './ui/cloud.js';
 import { openSettings, clearAll } from './ui/settings.js';
 
 const view = document.getElementById('view');
@@ -35,6 +36,7 @@ function renderHeader(d) {
   const settingsBtn = document.getElementById('btn-settings');
   const has = store.state.profiles.length > 0;
   settingsBtn.hidden = !has;
+  renderCloudButton();
   if (!has || !d) {
     sw.innerHTML = '';
     chip.hidden = true;
@@ -89,7 +91,7 @@ async function onStateChange() {
   render();
 }
 
-store.onChange = () => { onStateChange(); };
+store.onChange = () => { onStateChange(); schedulePush(); };
 store.onAction = (action) => {
   toast(`Feito: ${esc(action.label)}`, {
     tone: 'cyan', timeout: 7000,
@@ -232,6 +234,16 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.getElementById('btn-settings').addEventListener('click', () => openSettings({ onReload: afterReload, refreshMarket }));
+document.getElementById('btn-cloud').addEventListener('click', async () => {
+  try {
+    if (!cloudConnected()) await connectGoogle();
+    else {
+      const d = await syncNow({ interactive: true });
+      toast(d === 'pull' ? 'Dados atualizados com os do Google.' : 'Salvo no seu Google Drive.', { tone: 'cyan' });
+    }
+  } catch (err) { toast(esc(err.message), { tone: 'magenta' }); }
+});
+setReloadHook(() => afterReload());
 
 // virada do dia com o app aberto / volta do segundo plano
 document.addEventListener('visibilitychange', async () => {

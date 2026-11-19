@@ -58,6 +58,9 @@ export const store = {
     this.meta.manual = await vault.getMeta('manual', {});
     this.meta.lastBackup = await vault.getMeta('lastBackup', null);
     this.meta.journal = await vault.getMeta('journal', []);
+    this.meta.google = await vault.getMeta('google', null);
+    this.meta.lastSync = await vault.getMeta('lastSync', null);
+    this.meta.lastLocalChange = await vault.getMeta('lastLocalChange', 0);
     if (!this.state.profiles.some((p) => p.id === this.meta.activeProfileId)) {
       this.meta.activeProfileId = this.state.profiles[0]?.id || null;
     }
@@ -126,7 +129,11 @@ export const store = {
     }
     await vault.commit(changes);
     this.merge(changes);
-    if (action) await vault.setMeta('journal', this.meta.journal);
+    if (action) {
+      await vault.setMeta('journal', this.meta.journal);
+      this.meta.lastLocalChange = Date.now();
+      await vault.setMeta('lastLocalChange', this.meta.lastLocalChange);
+    }
     if (render) this.onChange();
     if (action && !actionId) this.onAction(action);
     return action;
@@ -147,6 +154,8 @@ export const store = {
     await vault.commit(changes);
     this.merge(changes);
     await vault.setMeta('journal', this.meta.journal);
+    this.meta.lastLocalChange = Date.now();
+    await vault.setMeta('lastLocalChange', this.meta.lastLocalChange);
     this.onChange();
     return action;
   },
@@ -164,6 +173,8 @@ export const store = {
     Object.assign(this.meta, meta);
     this.meta.journal = [];
     await vault.setMeta('journal', []);
+    this.meta.lastLocalChange = Date.now();
+    await vault.setMeta('lastLocalChange', this.meta.lastLocalChange);
     this.version++;
   },
 

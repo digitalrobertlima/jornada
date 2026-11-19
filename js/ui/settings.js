@@ -8,8 +8,9 @@ import { brl, dateBR, parseMoney } from '../core/format.js';
 import { buildDemoScenario } from '../db/demoScenario.js';
 import { normalizeHousehold } from '../core/model.js';
 import { openProfileWizard } from './wizards.js';
+import { cloudSectionHTML, bindCloudSection } from './cloud.js';
 
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.5.0';
 
 function download(filename, text) {
   const blob = new Blob([text], { type: 'application/json' });
@@ -28,6 +29,28 @@ export async function exportBackup() {
   download(`jornada-backup-${store.today}.json`, text);
   await store.setMeta('lastBackup', new Date().toISOString());
   toast('Backup salvo. Guarde o arquivo num lugar seguro (e-mail para você mesmo, pen drive, nuvem).', { tone: 'cyan', timeout: 5200 });
+}
+
+/** Abre a folha de compartilhamento do celular com o arquivo; a pessoa escolhe "Drive" e salva na própria conta, sem login nem permissão. */
+export async function shareToDrive() {
+  const text = await vault.exportBackup({ market: store.meta.market, manual: store.meta.manual });
+  const name = `jornada-backup-${store.today}.json`;
+  const file = new File([text], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Backup do Jornada' });
+      await store.setMeta('lastBackup', new Date().toISOString());
+      toast('Se você escolheu o Drive, seu backup está salvo lá.', { tone: 'cyan', timeout: 5200 });
+      return;
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') return; // a pessoa fechou a folha
+  }
+  // Computador / navegador sem compartilhamento de arquivos: baixa e abre o Drive para arrastar.
+  download(name, text);
+  await store.setMeta('lastBackup', new Date().toISOString());
+  window.open('https://drive.google.com/drive/my-drive', '_blank', 'noopener');
+  toast('Arquivo baixado. No Drive que abriu, é só arrastar o arquivo para lá.', { tone: 'cyan', timeout: 7000 });
 }
 
 export function importBackup(onDone) {
@@ -89,6 +112,7 @@ export function openSettings({ onReload, refreshMarket }) {
   openSheet({
     title: 'Ajustes & dados',
     body: `<div class="stack">
+      ${cloudSectionHTML()}
       <section class="card tight">
         <div class="row between"><span class="eyebrow">Perfil ativo</span><button class="btn sm ghost" data-s="profile">${icon('edit')}Editar</button></div>
         <div style="margin-top:6px"><b>${esc(p?.name || '—')}</b> · renda ${brl(p?.monthlyNetIncome)} · ${p?.monthlyWorkAndCommuteHours || 0} h/mês</div>
@@ -126,8 +150,9 @@ export function openSettings({ onReload, refreshMarket }) {
 
       <section class="card tight">
         <span class="eyebrow">Seus dados</span>
-        <p class="small" style="margin:6px 0 10px">Tudo fica só neste aparelho. Se trocar de celular ou limpar o navegador, só o backup salva seus dados. Último backup: <b>${last}</b>.</p>
+        <p class="small" style="margin:6px 0 10px">Tudo fica só neste aparelho. Se trocar de celular ou limpar o navegador, só o backup salva seus dados. Último backup: <b>${last}</b>.<br>Para guardar no Google Drive não precisa de login: toque em <b>Salvar no Google Drive</b> e escolha o Drive.</p>
         <div class="grid-2">
+          <button class="btn sm primary" data-s="drive">${icon('cloud')}Salvar no Google Drive</button>
           <button class="btn sm" data-s="export">${icon('download')}Exportar backup</button>
           <button class="btn sm" data-s="import">${icon('upload')}Importar backup</button>
         </div>
@@ -145,6 +170,7 @@ export function openSettings({ onReload, refreshMarket }) {
     </div>`,
     onMount(el, close) {
       const on = (k, fn) => el.querySelector(`[data-s="${k}"]`)?.addEventListener('click', fn);
+      bindCloudSection(el, close);
       el.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', async () => {
         await store.undo(b.dataset.undo);
         close();
@@ -152,6 +178,7 @@ export function openSettings({ onReload, refreshMarket }) {
       }));
       on('profile', () => { close(); openProfileWizard(store.pid); });
       on('profile-new', () => { close(); openProfileWizard(); });
+      on('drive', () => shareToDrive());
       on('export', () => exportBackup());
       on('import', () => { close(); importBackup(onReload); });
       on('demo', () => { close(); loadDemo(onReload); });

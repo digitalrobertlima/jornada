@@ -17,6 +17,7 @@ import { payObligation, addLedgerEntry, removeLedgerEntry } from '../engines/cas
 import { buildItem, memberIds } from '../engines/triage.js';
 import { negotiationScript } from '../engines/scripts.js';
 import { describeAction } from '../engines/journal.js';
+import { cloudConfigured, connectGoogle } from './cloud.js';
 import { moneyToMinutes, realHourlyRate } from '../engines/lifeHours.js';
 import { brlToSats } from '../engines/satsYield.js';
 import { buildDemoScenario } from '../db/demoScenario.js';
@@ -172,9 +173,18 @@ export function renderOnboarding(root, { onDone }) {
       <div>${icon('lock')}<span>Sem cadastro, sem servidor. Seus dados ficam só neste aparelho.</span></div>
     </div>
     <button class="btn primary block" data-ob="zero">${icon('plus')}Começar do zero</button>
+    ${cloudConfigured() ? `<button class="btn block" data-ob="google">${icon('cloud')}Já uso o Jornada: entrar com Google</button>` : ''}
     <button class="btn block" data-ob="demo">${icon('spark')}Carregar Cenário Realista de Teste</button>
     <p class="tiny" style="text-align:center">O cenário de teste usa dados fictícios e pode ser apagado com um toque.</p>
   </div>`;
+
+  root.querySelector('[data-ob="google"]')?.addEventListener('click', async () => {
+    try {
+      const d = await connectGoogle();
+      if (d === 'none' && !store.state.profiles.length) toast('Ainda não há dados salvos nessa conta. Comece do zero e eles serão salvos lá.', { timeout: 6000 });
+      onDone();
+    } catch (err) { toast(esc(err.message), { tone: 'magenta' }); }
+  });
 
   root.querySelector('[data-ob="demo"]').onclick = async () => {
     const state = buildDemoScenario(store.today);

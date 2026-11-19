@@ -55,3 +55,8 @@ npm test                      # 28 testes dos motores e do leitor de boleto (Nod
 ```
 
 Ao publicar uma nova versão, troque `VERSION` em `sw.js` para os aparelhos receberem a atualização.
+
+## Salvar no Google (v1.5.0)
+
+- **Sem login, sem configuração:** em *Ajustes → Salvar no Google Drive* o celular abre a folha de compartilhamento com o arquivo de backup; a pessoa escolhe o Drive e pronto. No computador, o arquivo é baixado e o Drive abre para arrastar.
+- **Login Google com sincronização automática (opcional):** o Google exige um *Client ID* (criado uma única vez pelo dono do app, não pelos usuários). Passos: console.cloud.google.com → novo projeto → ativar *Google Drive API* → tela de consentimento → Credenciais → *ID do cliente OAuth* (Aplicativo da Web) com origem `https://digitalrobertlima.github.io` → colar em `js/config.js` (`googleClientId`). Sem o ID, os botões de login ficam ocultos.
