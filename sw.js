@@ -1,7 +1,7 @@
 // Service Worker — Cache-First versionado, com fallback offline.
 // Caminhos relativos ao escopo: funciona em https://digitalrobertlima.github.io/jornada/.
 
-const VERSION = 'jornada-v1.5.0';
+const VERSION = 'jornada-v1.6.0';
 
 const PRECACHE = [
   './',
@@ -41,6 +41,8 @@ const PRECACHE = [
   './js/ui/settings.js',
   './js/ui/sheets.js',
   './js/ui/cloud.js',
+  './js/ui/forecast.js',
+  './js/engines/forecast.js',
   './js/services/googleSync.js',
   './js/config.js',
   './js/ui/views/hud.js',

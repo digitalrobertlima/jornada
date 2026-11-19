@@ -10,7 +10,7 @@ import { normalizeHousehold } from '../core/model.js';
 import { openProfileWizard } from './wizards.js';
 import { cloudSectionHTML, bindCloudSection } from './cloud.js';
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 
 function download(filename, text) {
   const blob = new Blob([text], { type: 'application/json' });

@@ -6,6 +6,7 @@ import { brl, dateShort } from '../../core/format.js';
 import { renderDeck, bindDeck } from '../deck3d.js';
 import { renderWave, waveTable } from '../flowChart.js';
 import { liquidityWave } from '../../engines/cashflow.js';
+import { forecastCardHTML } from '../forecast.js';
 
 export function renderWallet(d, store) {
   const accounts = store.state.accounts.filter((a) => a.profileId === d.pid);
@@ -50,6 +51,8 @@ export function renderWallet(d, store) {
       </div>
       <details style="margin-top:8px"><summary class="tiny" style="cursor:pointer">Ver como tabela</summary><div id="wave-table"></div></details>
     </section>
+
+    ${forecastCardHTML(d)}
 
     <div class="quick-entry">
       <button class="btn in" data-act="entry-new" data-dir="in">+ <span>Entrou</span></button>

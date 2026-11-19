@@ -7,8 +7,8 @@ import { num, round2 } from './util.js';
 export const SCHEMA_VERSION = '2.0';
 
 export const ACCOUNT_TYPES = {
-  checking_cash: { label: 'Conta / Dinheiro', short: 'Liquidez real', real: true },
-  benefit_card: { label: 'Cartão Benefício', short: 'Saldo restrito', real: false },
+  checking_cash: { label: 'Conta / Dinheiro (Pix, livre)', short: 'Liquidez real', real: true },
+  benefit_card: { label: 'Vale / Cartão Benefício (travado)', short: 'Saldo travado', real: false },
   credit_card: { label: 'Cartão de Crédito', short: 'Limite (não é seu)', real: false },
   collateralized_yield_crypto: { label: 'Cartão com Garantia (BTC)', short: 'Garantia + yield', real: false },
 };
@@ -85,8 +85,11 @@ export function normalizeAccount(a) {
   out.isRealLiquidity = out.type === 'checking_cash' ? a.isRealLiquidity !== false : false;
   switch (out.type) {
     case 'checking_cash':
+      out.balance = round2(a.balance);
+      break;
     case 'benefit_card':
       out.balance = round2(a.balance);
+      out.lock = ['alimentacao', 'transporte', 'outro'].includes(a.lock) ? a.lock : 'alimentacao';
       break;
     case 'credit_card':
       out.limitTotal = round2(a.limitTotal);
@@ -193,6 +196,9 @@ export function normalizeLedger(e) {
   out.status = e.status === 'scheduled' ? 'scheduled' : 'posted';
   out.category = String(e.category || (out.direction === 'in' ? 'entrada' : 'gasto')).slice(0, 40);
   out.installments = num(e.installments, 1) || 1;
+  out.forecast = Boolean(e.forecast) && out.status === 'scheduled' && out.direction === 'in';
+  if (e.liquidity) out.liquidity = e.liquidity === 'locked' ? 'locked' : 'pix';
+  if (!out.forecast) { delete out.repeat; } else out.repeat = e.repeat === 'monthly' ? 'monthly' : null;
   return out;
 }
 

@@ -7,7 +7,9 @@
 // o esforço (efeito gradiente de meta) → destacar o que está quase quitado.
 
 import { brl, lifeTime, dateHuman } from '../core/format.js';
+import { addDays } from '../core/dates.js';
 import { num, round2 } from '../core/util.js';
+import { planDistribution, pendingForecasts } from './forecast.js';
 
 const life = (amount, rate) => (rate > 0 ? lifeTime((amount / rate) * 60) : '');
 const plural = (n, s, p) => (n === 1 ? s : p);
@@ -84,6 +86,39 @@ export function buildGuide(d, { state }) {
         { label: 'Entrou dinheiro', act: 'caiu' },
       ],
     });
+  }
+
+  // 3b) Previsão de entradas: confirmar o que devia ter caído e avisar onde o dinheiro chega depois da conta
+  const today = d.today;
+  const pending = today ? pendingForecasts(state, pid) : [];
+  for (const e of pending.filter((x) => x.date < today).slice(0, 1)) {
+    push({
+      id: `forecast-late-${e.id}`, tone: 'warn', title: `Era para entrar ${brl(e.amount)} (${e.note}) em ${dateHuman(e.date)}. Já caiu?`,
+      why: 'Confirme quando cair para o app contar com esse dinheiro. Se atrasou, o plano de pagamento muda.',
+      actions: [{ label: 'Abrir previsão', act: 'forecast-open', id: e.id, primary: true }],
+    });
+  }
+  if (today && pending.length) {
+    const plan = planDistribution(state, pid, today, tri, { reserveTarget: d.profile?.shieldTarget || 500 });
+    const gap = plan.gaps.filter((g) => g.essential || g.resolvedAt).sort((a, b) => a.date.localeCompare(b.date))[0];
+    if (gap) {
+      push({
+        id: `forecast-gap-${gap.id}`, tone: 'warn',
+        title: `${gap.name} vence ${dateHuman(gap.date)}, mas o dinheiro ${gap.resolvedAt ? `só entra em ${dateHuman(gap.resolvedAt)}` : 'previsto não cobre'}`,
+        why: gap.until ? `Até lá você terá ${brl(gap.have)} e faltam ${brl(gap.missing)}. Ligue antes do vencimento e peça para mudar a data: é bem mais barato que atrasar.`
+          : `Com o que está previsto, faltam ${brl(gap.missing)}. Combine uma nova data ou procure uma renda extra.`,
+        actions: [{ label: 'Roteiro: mudar a data', act: 'script', id: gap.id, primary: true }, { label: 'Ver plano', act: 'forecast-plan' }],
+      });
+    } else {
+      const next = pending.find((x) => x.date >= today && x.liquidity !== 'locked');
+      if (next && next.date <= addDays(today, 7)) {
+        push({
+          id: 'forecast-plan', tone: 'info', title: `${next.note}: ${brl(next.amount)} entram ${next.date === today ? 'hoje' : dateHuman(next.date)}`,
+          why: 'Já deixei pronto como distribuir: primeiro as contas essenciais, depois a reserva, depois as dívidas.',
+          actions: [{ label: 'Ver como distribuir', act: 'forecast-plan', primary: true }],
+        });
+      }
+    }
   }
 
   // 4) Cartão com corte de limite: o erro clássico
@@ -170,7 +205,15 @@ export function buildGuide(d, { state }) {
     });
   }
 
-  if (!steps.length) {
+  if (today && !pending.length && steps.length < 4) {
+    push({
+      id: 'forecast-start', tone: 'info', title: 'Cadastre o que vai entrar (salário, adiantamento, vale)',
+      why: 'Com as entradas previstas, o app calcula como distribuir cada uma e avisa quando uma conta vence antes do dinheiro chegar.',
+      actions: [{ label: 'Prever uma entrada', act: 'forecast-new', primary: !steps.length }],
+    });
+  }
+
+  if (steps.every((s) => s.id === 'forecast-start')) {
     const next = tri.battlefield[0];
     push({
       id: 'steady', tone: 'win', title: next ? `Tudo em dia. Próximo alvo: ${next.ob.beneficiary}` : 'Tudo em dia',

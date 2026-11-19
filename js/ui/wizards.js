@@ -738,6 +738,10 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
     body: `<form novalidate>
       ${seg('direction', [['in', '+ Entrou'], ['out', '− Saiu']], dir, 'inout')}
       ${moneyField('amount', 'Valor', '', { big: true })}
+      <div id="liq-box" hidden class="stack">
+        <b class="small">Esse dinheiro caiu como...</b>
+        ${seg('liq', [['pix', 'Pix / conta (livre)'], ['locked', 'Vale / cartão (travado)']], 'pix')}
+      </div>
       ${accountSelect('accountId', accounts, selected)}
       <div class="tiny" id="acc-hint"></div>
       <label class="field"><span>Categoria</span><select class="input" name="category"></select></label>
@@ -767,7 +771,17 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
         el.querySelector('#acc-hint').textContent = hint;
         el.querySelector('#inst-box').hidden = !(acc?.type === 'collateralized_yield_crypto' && v.direction === 'out');
       };
-      form.addEventListener('change', sync);
+      form.addEventListener('change', (ev) => {
+        if (ev.target.name === 'liq') {
+          const want = ev.target.value === 'locked' ? 'benefit_card' : 'checking_cash';
+          const match = accounts.find((a) => a.type === want);
+          if (match) form.accountId.value = match.id;
+          else if (want === 'benefit_card') { toast('Cadastre o cartão de benefício primeiro.'); openAccountWizard(); return; }
+        }
+        el.querySelector('#liq-box').hidden = form.direction.value !== 'in';
+        sync();
+      });
+      el.querySelector('#liq-box').hidden = form.direction.value !== 'in';
       sync();
       form.onsubmit = async (e) => {
         e.preventDefault();
@@ -824,6 +838,11 @@ export function openAccountWizard(existingId = null) {
         ${Object.entries(ACCOUNT_TYPES).map(([k, t]) => `<option value="${k}"${k === type ? ' selected' : ''}>${t.label}</option>`).join('')}</select></label>
       ${textField('name', 'Nome', ex?.name || '', { required: true, placeholder: 'Ex.: Nubank, Caju, Bipa' })}
       <div data-t="checking_cash benefit_card">${moneyField('balance', 'Saldo atual', ex?.balance ?? '', { big: true })}</div>
+      <div data-t="benefit_card" class="stack">
+        <label class="field"><span>Esse saldo serve para</span><select class="input" name="lock">
+          ${[['alimentacao', 'Alimentação / mercado'], ['transporte', 'Transporte'], ['outro', 'Outro uso']].map(([k, l]) => `<option value="${k}"${(ex?.lock || 'alimentacao') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <p class="tiny">Saldo travado: só funciona no cartão e nunca paga aluguel, boleto ou dívida.</p>
+      </div>
       <div data-t="credit_card" class="stack">
         <div class="grid-2">${moneyField('limitTotal', 'Limite total', ex?.limitTotal ?? '')}${moneyField('limitAvailable', 'Disponível', ex?.limitAvailable ?? '')}</div>
         <div class="grid-2">${numField('closingDay', 'Fechamento (dia)', ex?.closingDay ?? '', { step: 1 })}${numField('dueDay', 'Vencimento (dia)', ex?.dueDay ?? '', { step: 1 })}</div>
@@ -853,7 +872,7 @@ export function openAccountWizard(existingId = null) {
         if (!v.name.trim()) { toast('Dê um nome à conta.', { tone: 'magenta' }); return; }
         const acc = normalizeAccount({
           ...(ex || { id: uid('acc'), profileId: store.pid }), type: t, name: v.name.trim(),
-          balance: parseMoney(v.balance), limitTotal: parseMoney(v.limitTotal),
+          balance: parseMoney(v.balance), lock: v.lock, limitTotal: parseMoney(v.limitTotal),
           limitAvailable: v.limitAvailable === '' ? parseMoney(v.limitTotal) : parseMoney(v.limitAvailable),
           closingDay: num(v.closingDay) || null, dueDay: num(v.dueDay) || null, limitShrinking: Boolean(v.limitShrinking),
           collateralTotal: parseMoney(v.collateralTotal), lockedInstallments: parseMoney(v.lockedInstallments),

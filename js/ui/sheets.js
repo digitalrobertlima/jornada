@@ -1,6 +1,7 @@
 // Detalhes abertos ao tocar nos números da tela inicial e no fluxo diário.
 // Regra: todo número é tocável e leva ao que está por trás dele; tudo tem "desfazer".
 
+import { openForecastDetail } from './forecast.js';
 import { store } from '../store.js';
 import { esc, openSheet, toast } from './dom.js';
 import { icon } from './icons.js';
@@ -54,6 +55,7 @@ export function openVictories() {
 export function openEntry(id) {
   const e = store.state.ledger.find((x) => x.id === id);
   if (!e) return;
+  if (e.forecast) { openForecastDetail(id); return; }
   const acc = store.state.accounts.find((a) => a.id === e.accountId);
   const action = store.actionForLedger(id);
   const ob = e.obligationId ? store.state.obligations.find((o) => o.id === e.obligationId) : null;

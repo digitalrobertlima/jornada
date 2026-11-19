@@ -580,3 +580,14 @@ details.more summary::-webkit-details-marker { display: none; }
 .icon-btn.cloud.ok .dot { background: var(--cyan); }
 .icon-btn.cloud.pending .dot { background: var(--amber); animation: late-ring 1.4s infinite; }
 .icon-btn.cloud.error .dot { background: var(--magenta); }
+
+/* ---------- Previsão e plano ---------- */
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); vertical-align: middle; }
+.chip.pix { color: var(--cyan); border-color: rgba(0, 191, 255, 0.4); }
+.chip.lock { color: var(--amber); border-color: rgba(255, 176, 32, 0.45); }
+.plan-line { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+.plan-line > span:first-child { display: flex; flex-direction: column; min-width: 0; }
+.plan-note { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink2); padding: 4px 2px; }
+.plan-note .ic { flex: none; margin-top: 2px; }
+.gap { font-size: 14px; line-height: 1.4; padding: 8px 0; border-top: 1px solid var(--border); }
+.gap:first-of-type { border-top: 0; }

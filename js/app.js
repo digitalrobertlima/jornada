@@ -19,6 +19,7 @@ import {
 } from './ui/wizards.js';
 import { openSimulator } from './ui/simulator.js';
 import { openEssentials, openVictories, openEntry } from './ui/sheets.js';
+import { openForecastSheet, openForecastDetail, openPlanSheet } from './ui/forecast.js';
 import { schedulePush, renderCloudButton, syncNow, connectGoogle, cloudConnected, setReloadHook } from './ui/cloud.js';
 import { openSettings, clearAll } from './ui/settings.js';
 
@@ -193,6 +194,9 @@ const actions = {
   'entry-new': (el) => openEntrySheet({ dir: el.dataset.dir || 'out', accountId: el.dataset.account || null }),
   'entry-del': (el) => removeEntry(el.dataset.id),
   'entry-open': (el) => openEntry(el.dataset.id),
+  'forecast-new': () => openForecastSheet(),
+  'forecast-open': (el) => openForecastDetail(el.dataset.id),
+  'forecast-plan': () => openPlanSheet(),
   essentials: () => openEssentials(),
   victories: () => openVictories(),
   'account-new': () => openAccountWizard(),

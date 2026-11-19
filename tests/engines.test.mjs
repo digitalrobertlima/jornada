@@ -158,6 +158,7 @@ test('lançamentos: crédito não mexe no caixa; Bipa parcelado trava garantia; 
 
 test('agendados viram postados quando a data chega', () => {
   const s = buildDemoScenario(TODAY);
+  s.ledger.find((e) => e.id === 'tx_d10').forecast = false; // agendado comum (não é previsão)
   const ch = processScheduled(s, '2026-11-24');
   const s2 = apply(s, ch);
   assert.equal(realLiquidity(s2, 'prof_01'), 1180 + 840);

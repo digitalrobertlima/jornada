@@ -60,3 +60,10 @@ Ao publicar uma nova versão, troque `VERSION` em `sw.js` para os aparelhos rece
 
 - **Sem login, sem configuração:** em *Ajustes → Salvar no Google Drive* o celular abre a folha de compartilhamento com o arquivo de backup; a pessoa escolhe o Drive e pronto. No computador, o arquivo é baixado e o Drive abre para arrastar.
 - **Login Google com sincronização automática (opcional):** o Google exige um *Client ID* (criado uma única vez pelo dono do app, não pelos usuários). Passos: console.cloud.google.com → novo projeto → ativar *Google Drive API* → tela de consentimento → Credenciais → *ID do cliente OAuth* (Aplicativo da Web) com origem `https://digitalrobertlima.github.io` → colar em `js/config.js` (`googleClientId`). Sem o ID, os botões de login ficam ocultos.
+
+## Previsão de entradas e plano de distribuição (v1.6.0)
+
+- **Prever uma entrada** (Dinheiro → "Previsão de entradas"): salário, adiantamento, vale-alimentação, vale-transporte, extra. Para cada uma o app pergunta se cai **livre via Pix** ou **travada** em vale/cartão benefício (e para qual uso: alimentação, transporte, outro). "Repete todo mês" prevê o mês seguinte ao confirmar.
+- A previsão **não vira saldo sozinha**: só quando você toca em **"Caiu!"** (com o valor real). Dá para desfazer.
+- **Como distribuir** cruza as entradas previstas com as contas que vencem e sugere, em ordem: essenciais → cartório → atrasadas → reserva → adiantar dívidas. Segura o dinheiro de hoje para o aluguel que vence antes do próximo pagamento, usa o vale-alimentação só para conta de alimentação e avisa quando uma conta vence **antes** do dinheiro chegar (com roteiro para pedir nova data).
+- Todo lançamento de entrada pergunta "caiu como Pix (livre) ou travado?"; cartões benefício agora têm finalidade.

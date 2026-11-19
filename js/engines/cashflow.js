@@ -195,7 +195,7 @@ export function addLedgerEntry(state, input, { today, btcPrice } = {}) {
 /** Posta lançamentos agendados cuja data chegou. */
 export function processScheduled(state, today, opts = {}) {
   const changes = emptyChanges();
-  const due = state.ledger.filter((e) => e.status === 'scheduled' && e.date <= today);
+  const due = state.ledger.filter((e) => e.status === 'scheduled' && !e.forecast && e.date <= today);
   for (const e of due) {
     const posted = { ...e, status: 'posted' };
     upsert(changes.ledger, posted);

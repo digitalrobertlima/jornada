@@ -37,7 +37,7 @@ export function buildDemoScenario(today) {
         yieldConfig: { cdiPercent: 100, cashbackPercent: 0.5, payoutAsset: 'BTC' },
         satsFromYield: 18450, satsFromCashback: 3120, yieldAccruedUntil: d(-1),
       },
-      { id: 'acc_caju_01', profileId: 'prof_01', name: 'Caju Benefícios', type: 'benefit_card', balance: 320 },
+      { id: 'acc_caju_01', profileId: 'prof_01', name: 'Caju Benefícios', type: 'benefit_card', balance: 320, lock: 'alimentacao' },
       {
         id: 'acc_cc_01', profileId: 'prof_01', name: 'Cartão Crédito', type: 'credit_card',
         limitTotal: 4000, limitAvailable: 120, limitShrinking: true, closingDay: 12, dueDay: 19,
@@ -109,11 +109,12 @@ export function buildDemoScenario(today) {
       { id: 'tx_d07', profileId: 'prof_01', date: d(-3), direction: 'out', amount: 64.5, accountId: 'acc_bipa_01', impactCashToday: false, category: 'mercado', note: 'Padaria no Bipa (cashback BTC)' },
       { id: 'tx_d08', profileId: 'prof_01', date: d(-2), direction: 'out', amount: 75.4, accountId: 'acc_bank_01', impactCashToday: true, category: 'casa', note: 'Gás' },
       { id: 'tx_d09', profileId: 'prof_01', date: d(-1), direction: 'in', amount: 120, accountId: 'acc_bank_01', impactCashToday: true, category: 'extra', note: 'Bico de entrega' },
-      { id: 'tx_d10', profileId: 'prof_01', date: d(5), direction: 'in', amount: 840, accountId: 'acc_bank_01', impactCashToday: true, category: 'adiantamento', note: 'Adiantamento', status: 'scheduled' },
-      { id: 'tx_d11', profileId: 'prof_01', date: d(13), direction: 'in', amount: 1600, accountId: 'acc_bank_01', impactCashToday: true, category: 'salário', note: 'Quinzena', status: 'scheduled' },
+      { id: 'tx_d10', profileId: 'prof_01', date: d(5), direction: 'in', amount: 840, accountId: 'acc_bank_01', impactCashToday: true, category: 'adiantamento', note: 'Adiantamento', status: 'scheduled', forecast: true, kind: 'adiantamento', liquidity: 'pix' },
+      { id: 'tx_d10b', profileId: 'prof_01', date: d(8), direction: 'in', amount: 450, accountId: 'acc_caju_01', impactCashToday: false, category: 'benefício', note: 'Vale-alimentação', status: 'scheduled', forecast: true, kind: 'vale_alimentacao', liquidity: 'locked' },
+      { id: 'tx_d11', profileId: 'prof_01', date: d(13), direction: 'in', amount: 1600, accountId: 'acc_bank_01', impactCashToday: true, category: 'salário', note: 'Quinzena', status: 'scheduled', forecast: true, kind: 'salario', liquidity: 'pix' },
       { id: 'tx_d12', profileId: 'prof_02', date: d(-10), direction: 'in', amount: 1300, accountId: 'acc_bank_02', impactCashToday: true, category: 'salário', note: 'Quinzena' },
       { id: 'tx_d13', profileId: 'prof_02', date: d(-4), direction: 'out', amount: 210, accountId: 'acc_bank_02', impactCashToday: true, category: 'mercado', note: 'Feira e mercado' },
-      { id: 'tx_d14', profileId: 'prof_02', date: d(9), direction: 'in', amount: 1300, accountId: 'acc_bank_02', impactCashToday: true, category: 'salário', note: 'Quinzena', status: 'scheduled' },
+      { id: 'tx_d14', profileId: 'prof_02', date: d(9), direction: 'in', amount: 1300, accountId: 'acc_bank_02', impactCashToday: true, category: 'salário', note: 'Quinzena', status: 'scheduled', forecast: true, kind: 'salario', liquidity: 'pix' },
     ],
   };
   return normalizeState(raw);
