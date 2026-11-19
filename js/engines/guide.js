@@ -100,13 +100,18 @@ export function buildGuide(d, { state }) {
   }
   if (today && pending.length) {
     const plan = planDistribution(state, pid, today, tri, { reserveTarget: d.profile?.shieldTarget || 500 });
-    const gap = plan.gaps.filter((g) => g.essential || g.resolvedAt).sort((a, b) => a.date.localeCompare(b.date))[0];
+    // só contas que ainda VÃO vencer: as já atrasadas têm passo próprio ("atrasada há N dias")
+    const gap = plan.gaps.filter((g) => g.date >= today && (g.essential || g.resolvedAt)).sort((a, b) => a.date.localeCompare(b.date))[0];
     if (gap) {
+      const when = gap.date === today ? 'vence hoje' : `vence ${dateHuman(gap.date)}`;
       push({
         id: `forecast-gap-${gap.id}`, tone: 'warn',
-        title: `${gap.name} vence ${dateHuman(gap.date)}, mas o dinheiro ${gap.resolvedAt ? `só entra em ${dateHuman(gap.resolvedAt)}` : 'previsto não cobre'}`,
-        why: gap.until ? `Até lá você terá ${brl(gap.have)} e faltam ${brl(gap.missing)}. Ligue antes do vencimento e peça para mudar a data: é bem mais barato que atrasar.`
-          : `Com o que está previsto, faltam ${brl(gap.missing)}. Combine uma nova data ou procure uma renda extra.`,
+        title: `${gap.name} ${when}, mas o dinheiro ${gap.resolvedAt ? `só entra em ${dateHuman(gap.resolvedAt)}` : 'previsto não cobre'}`,
+        why: gap.resolvedAt
+          ? `O dinheiro para pagar ${brl(gap.amount)} só chega em ${dateHuman(gap.resolvedAt)}. Ligue antes do vencimento e peça para mudar a data para depois disso: é bem mais barato que atrasar.`
+          : gap.missing > 0.004
+            ? `Com o que está previsto, faltam ${brl(gap.missing)} para pagar ${brl(gap.amount)}. Combine uma nova data ou procure uma renda extra.`
+            : 'Ligue antes do vencimento e combine uma nova data: é bem mais barato que atrasar.',
         actions: [{ label: 'Roteiro: mudar a data', act: 'script', id: gap.id, primary: true }, { label: 'Ver plano', act: 'forecast-plan' }],
       });
     } else {
