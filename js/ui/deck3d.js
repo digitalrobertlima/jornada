@@ -76,55 +76,46 @@ export function renderDeck(accounts) {
   if (!accounts.length) {
     return `<div class="empty">Nenhuma conta ainda. Comece pela sua conta corrente: é ela que conta como dinheiro de verdade.</div>`;
   }
-  // a conta corrente (liquidez real) fica por cima, à direita do leque
-  const order = [...accounts].sort((a, b) => (a.type === 'checking_cash') - (b.type === 'checking_cash'));
-  const n = order.length;
-  const spread = n > 1 ? Math.min(7, 22 / (n - 1)) : 0;
-  const shift = n > 1 ? Math.min(26, 64 / (n - 1)) : 0;
-  const cards = order.map((a, i) => {
-    const k = i - (n - 1) / 2;
-    const rot = (k * spread).toFixed(2);
-    const tx = (k * shift).toFixed(1);
-    const ty = (Math.abs(k) * 4).toFixed(1);
-    return `<button type="button" class="acard t-${a.type}${a.limitShrinking ? ' shrinking' : ''}" data-card="${esc(a.id)}"
-        style="--rot:${rot}deg;--tx:${tx}px;--ty:${ty}px;z-index:${i + 1}" aria-label="${esc(a.name)}">
-        <div class="flip">${cardFront(a)}${cardBack(a)}</div></button>`;
-  }).join('');
-  return `<div class="deck" id="deck">${cards}</div><div class="deck-hint">Toque num cartão para trazer à frente · toque de novo para ver o verso</div>`;
+  // carrossel: arrasta para o lado, um cartão por vez; a conta corrente (dinheiro de verdade) vem primeiro
+  const order = [...accounts].sort((a, b) => (b.type === 'checking_cash') - (a.type === 'checking_cash'));
+  const cards = order.map((a, i) => `<button type="button" class="acard t-${a.type}${a.limitShrinking ? ' shrinking' : ''}${i === 0 ? ' current' : ''}" data-card="${esc(a.id)}"
+      aria-label="${esc(a.name)} (${i + 1} de ${order.length})"><div class="flip">${cardFront(a)}${cardBack(a)}</div></button>`).join('');
+  const dots = order.length > 1 ? `<div class="deck-dots" aria-hidden="true">${order.map((_, i) => `<i${i === 0 ? ' class="on"' : ''}></i>`).join('')}</div>` : '';
+  return `<div class="deck" id="deck">${cards}</div>${dots}<div class="deck-hint">Arraste para o lado para ver os outros · toque para virar o cartão</div>`;
 }
 
 export function bindDeck(root) {
   const deck = root.querySelector('#deck');
   if (!deck) return;
+  const cards = [...deck.querySelectorAll('.acard')];
+  const dots = [...(root.querySelector('.deck-dots')?.children || [])];
+  let current = 0;
+  const update = () => {
+    const mid = deck.scrollLeft + deck.clientWidth / 2;
+    let best = 0;
+    let dist = Infinity;
+    cards.forEach((c, i) => {
+      const d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid);
+      if (d < dist) { dist = d; best = i; }
+    });
+    if (best === current) return;
+    cards[current]?.classList.remove('current', 'flipped');
+    dots[current]?.classList.remove('on');
+    current = best;
+    cards[current].classList.add('current');
+    dots[current]?.classList.add('on');
+  };
+  let raf = 0;
+  deck.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(update); }, { passive: true });
   deck.addEventListener('click', (e) => {
     if (e.target.closest('[data-act]')) return; // ações do verso
     const card = e.target.closest('.acard');
-    if (!card) {
-      deck.classList.remove('has-active');
-      deck.querySelectorAll('.acard').forEach((c) => c.classList.remove('active', 'flipped'));
-      return;
-    }
-    if (card.classList.contains('active')) {
-      card.classList.toggle('flipped');
-    } else {
-      deck.querySelectorAll('.acard').forEach((c) => c.classList.remove('active', 'flipped'));
-      card.classList.add('active');
-      deck.classList.add('has-active');
-    }
+    if (!card) return;
+    const i = cards.indexOf(card);
+    if (i !== current) { card.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); return; }
+    card.classList.toggle('flipped');
   });
-  // leve inclinação com o ponteiro (desktop)
-  deck.addEventListener('pointermove', (e) => {
-    if (e.pointerType !== 'mouse') return;
-    const active = deck.querySelector('.acard.active:not(.flipped) .flip');
-    if (!active) return;
-    const r = active.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width - 0.5;
-    const y = (e.clientY - r.top) / r.height - 0.5;
-    active.style.transform = `rotateY(${x * 14}deg) rotateX(${-y * 12}deg)`;
-  });
-  deck.addEventListener('pointerleave', () => {
-    deck.querySelectorAll('.flip').forEach((f) => { f.style.transform = ''; });
-  });
+  dots.forEach((d, i) => d.addEventListener('click', () => cards[i].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })));
 }
 
 // ---------------------------------------------------------------- Totens

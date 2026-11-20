@@ -392,22 +392,22 @@ textarea.input { min-height: 84px; resize: vertical; font-family: var(--mono); f
 
 /* ---------- Deck 3D de contas ---------- */
 .deck {
-  position: relative; height: 250px; perspective: 1100px; margin: 4px 0 0;
-  touch-action: pan-y;
+  display: flex; gap: 12px; overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  padding: 14px 11% 22px; margin: 4px -16px 0; perspective: 1100px; touch-action: pan-x pan-y;
 }
+.deck::-webkit-scrollbar { display: none; }
 .deck .acard {
-  --rot: 0deg; --tx: 0px; --ty: 0px; --cw: min(250px, 64vw);
-  position: absolute; left: 50%; bottom: 34px; width: var(--cw); aspect-ratio: 1.586;
-  margin-left: calc(var(--cw) / -2);
-  transform-origin: 50% 140%;
-  transform: translateX(var(--tx)) translateY(var(--ty)) rotate(var(--rot));
-  transform-style: preserve-3d;
-  transition: transform .55s var(--spring), filter .3s, opacity .3s;
+  position: relative; flex: 0 0 78%; max-width: 340px; aspect-ratio: 1.586; scroll-snap-align: center;
+  transform: scale(0.92); opacity: 0.55; transform-style: preserve-3d;
+  transition: transform .35s var(--ease), opacity .35s;
   border: 0; padding: 0; background: none; color: inherit; text-align: left;
 }
-.deck.has-active .acard:not(.active) { filter: brightness(0.55) saturate(0.7); }
-.deck .acard.active { transform: translateY(-26px) rotate(0deg) scale(1.08); z-index: 20 !important; }
-.deck .acard.active.flipped .flip { transform: rotateY(180deg); }
+.deck .acard.current { transform: none; opacity: 1; }
+.deck .acard.flipped .flip { transform: rotateY(180deg); }
+.deck-dots { display: flex; justify-content: center; gap: 6px; margin-top: -8px; }
+.deck-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--steel); transition: width .25s, background .25s; cursor: pointer; }
+.deck-dots i.on { width: 18px; background: var(--cyan); }
 .acard .flip { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform .6s var(--ease); }
 .acard .face {
   position: absolute; inset: 0; border-radius: 16px; padding: 14px 16px;
