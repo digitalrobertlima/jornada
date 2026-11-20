@@ -165,3 +165,20 @@ test('ferramenta desconhecida e argumentos com nomes em inglês', async () => {
   const r = await runTool(tools, 'registrar_gasto', { amount: 10, description: 'pão' });
   assert.ok(r.preview);
 });
+
+test('"quando vou respirar?": projeção mês a mês com data e ordem', async () => {
+  const { tools, state } = setup();
+  state.ledger.push({ id: 'sal', profileId: 'prof_01', date: '2026-12-05', direction: 'in', amount: 3200, status: 'scheduled', forecast: true, liquidity: 'pix', repeat: 'monthly', note: 'Salário', kind: 'salario', accountId: 'acc_bank_01' });
+  const r = await runTool(tools, 'quando_fico_livre');
+  assert.match(r.text, /acabam em \w+ de 20\d\d/);
+  assert.match(r.text, /Ordem em que elas somem/);
+  assert.match(r.text, /Estimativa, supondo/);
+});
+
+test('"quando vou respirar?" sem dinheiro sobrando explica por que não dá data', async () => {
+  const { tools, state } = setup('prof_01');
+  state.profiles.find((p) => p.id === 'prof_01').monthlyNetIncome = 500;
+  state.ledger = state.ledger.filter((e) => !e.forecast);
+  const r = await runTool(tools, 'quando_fico_livre');
+  assert.match(r.text, /Ainda não dá para prever/);
+});

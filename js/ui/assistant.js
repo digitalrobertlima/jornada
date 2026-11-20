@@ -487,7 +487,10 @@ async function send(text) {
     // pedidos claros vão direto para a ferramenta certa (rápido e sem chance da IA se confundir);
     // a IA fica com conversa livre, perguntas abertas e o que o modo básico não entende
     const r = parseBasic(text, store.today);
-    if (r.tool) await runAndShow(r.tool, r.args, r.fallback);
+    // pergunta longa e aberta que só "esbarrou" numa palavra (ex.: "data prevista") fica com a IA
+    const generic = ['previsoes', 'contas_a_pagar', 'minhas_contas', 'situacao', 'lancamentos'];
+    const longQuestion = text.trim().split(/\s+/).length >= 10;
+    if (r.tool && !(longQuestion && generic.includes(r.tool) && ai.status === 'ready' && chat)) await runAndShow(r.tool, r.args, r.fallback);
     else if (ai.status === 'ready' && chat) await aiTurn(text);
     else addBubble('assistant', r.reply);
   } catch (err) {

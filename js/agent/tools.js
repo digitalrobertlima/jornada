@@ -13,6 +13,7 @@ import {
   INCOME_KINDS, addForecast, confirmForecast, pendingForecasts, planDistribution,
 } from '../engines/forecast.js';
 import { buildGuide } from '../engines/guide.js';
+import { projectFreedom, monthLabel } from '../engines/freedom.js';
 import { describeAction } from '../engines/journal.js';
 import {
   normalizeRecipe, validateRecipe, describeRecipe, recipesOf, movePot, customCategories, FORMULA_VARS,
@@ -134,6 +135,31 @@ export function createTools(api) {
     const { d, state } = ctx();
     const steps = buildGuide(d, { state }).slice(0, 3);
     return { text: steps.map((s, i) => `${i + 1}. ${s.title}. ${s.why}`).join('\n') || 'Tudo em dia.' };
+  });
+
+  def('quando_fico_livre', 'read', 'Estima QUANDO todas as dívidas acabam ("quando vou respirar?"), seguindo o plano do app mês a mês.', {}, () => {
+    const { d, state, today, pid } = ctx();
+    const f = projectFreedom(state, pid, today, d.tri, { reserveTarget: d.profile?.shieldTarget || 500 });
+    const hip = `Estimativa, supondo que ${f.assumptions.join('; ')}.`;
+    if (!f.debtTotal) return { text: 'Você não tem dívidas cadastradas fora as contas do mês. Já está respirando! 🙌' };
+    if (!f.ok) {
+      if (f.monthlyFree <= 0) {
+        return { text: `Ainda não dá para prever uma data: por mês entram ${brl(f.monthlyIncome)} livres e as contas essenciais custam ${brl(f.monthlyEssentials)}, então faltam ${brl(-f.monthlyFree)} antes de pagar qualquer dívida.
+O que muda isso: renda extra, baixar uma conta essencial ou renegociar parcelas para valores menores. Se o salário ainda não está cadastrado como "todo mês", cadastre (ex.: "o salário de 2000 cai dia 5").
+${hip}` };
+      }
+      return { text: `Nesse ritmo passa de 10 anos: sobram ${brl(f.monthlyFree)} por mês para dívidas que somam ${brl(f.debtTotal)} e os juros comem quase tudo. Prioridade: negociar as de juros altos (cartão, cheque especial) para parar de crescer.
+${hip}` };
+    }
+    const when = f.months === 0 ? 'ainda este mês' : `em ${monthLabel(f.date)} (uns ${f.months} ${plural(f.months, 'mês', 'meses')})`;
+    const lines = [
+      `Seguindo o plano (essenciais primeiro, parcelas em dia, reserva pequena e o resto nas dívidas), as dívidas da fila acabam ${when}.`,
+      f.hasLater && f.dateAll ? `Contando também as dívidas antigas guardadas para depois: ${monthLabel(f.dateAll)}.` : null,
+      `Por mês entram ${brl(f.monthlyIncome)} livres, as essenciais levam ${brl(f.monthlyEssentials)} e sobram uns ${brl(f.monthlyFree)} para as dívidas.`,
+      f.milestones.length ? `Ordem em que elas somem: ${f.milestones.slice(0, 5).map((m) => `${m.name} (${monthLabel(m.date)})`).join(', ')}${f.milestones.length > 5 ? ' e outras' : ''}.` : null,
+      hip,
+    ];
+    return { text: lines.filter(Boolean).join('\n') };
   });
 
   def('contas_a_pagar', 'read', 'Lista contas e dívidas com valor, vencimento e se está atrasada.', { filtro: 'atrasadas | proximas | todas (opcional)' }, ({ filtro } = {}) => {

@@ -75,6 +75,9 @@ export function parseBasic(text, today) {
   if (pot && valor) return { tool: 'guardar_no_pote', args: { pote: pot[2].trim(), valor, tirar: /^ti/.test(pot[1]) } };
 
   // consultas
+  if (/(quando (eu )?(vou|vo|irei|consigo|vou conseguir|da pra|posso) ?(conseguir )?(respirar|ficar livre|sair (das|da) divida|quitar tudo|pagar tudo|zerar|limpar o nome)|respirar|livre das dividas|sair do vermelho|data (prevista|estimada) .*(pagar|quitar)|(pagar|quitar) todas as dividas|quanto tempo .*(pagar|quitar|sair))/.test(t)) {
+    return { tool: 'quando_fico_livre', args: {} };
+  }
   if (/quanto (eu )?(gastei|gasto|paguei|recebi|ganhei) (de|com|no|na|em)? ?(.+)/.test(t)) {
     const m = t.match(/quanto (?:eu )?(gastei|gasto|paguei|recebi|ganhei) (?:de |com |no |na |em )?(.+?)( (esse|este|no|neste) mes| na semana| esse ano)?$/);
     const dias = /semana/.test(t) ? 7 : /ano/.test(t) ? 365 : 30;

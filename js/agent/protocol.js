@@ -35,6 +35,8 @@ Pessoa: quero juntar 300 pro gás até dia 10
 Você: <acao>{"ferramenta": "criar_peca", "args": {"peca": "pote", "nome": "Gás", "meta": 300, "prazo": "dia 10"}}</acao>
 Pessoa: como estou?
 Você: <acao>{"ferramenta": "situacao", "args": {}}</acao>
+Pessoa: quando vou conseguir quitar tudo?
+Você: <acao>{"ferramenta": "quando_fico_livre", "args": {}}</acao>
 Pessoa: o que faço agora?
 Você: <acao>{"ferramenta": "o_que_fazer", "args": {}}</acao>
 Pessoa: oi
