@@ -3,7 +3,8 @@
 import { esc } from '../dom.js';
 import { icon } from '../icons.js';
 import { brl, brlShort, dateShort } from '../../core/format.js';
-import { renderTotem, animateTotems, towerValue } from '../deck3d.js';
+import { renderTotem, animateTotems, towerValue, moneyTowerHTML, monthShort } from '../deck3d.js';
+import { projectFreedom, atHorizon } from '../../engines/freedom.js';
 import { deadlineOf, countdownText } from './hud.js';
 
 const ADD = [
@@ -14,8 +15,23 @@ const ADD = [
   ['vital', 'home', '+ Vital / Casa'],
 ];
 
-export function renderBattle(d) {
+/** Opções de período da simulação (meses contados a partir deste). */
+function horizons(today) {
+  const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const m = Number(today.slice(5, 7)) - 1;
+  return [[1, `Até fim de ${MONTHS[m]}`], [2, `Até fim de ${MONTHS[(m + 1) % 12]}`], [3, '3 meses'], [6, '6 meses'], [0, 'Até quitar tudo']];
+}
+
+export function renderBattle(d, state = null, sim = null) {
   const { tri, rate, eras } = d;
+  let simData = null;
+  if (sim?.on && state) {
+    const proj = projectFreedom(state, d.pid, d.today, tri, { reserveTarget: d.profile?.shieldTarget || 500 });
+    // "até quitar" = até a última torre desta tela cair (as dívidas guardadas ficam fora daqui)
+    const h = sim.h || (proj.months !== null ? proj.months + 1 : proj.monthEnd.length);
+    const at = atHorizon(proj, h);
+    simData = { proj, at, h };
+  }
   const maxValue = Math.max(1, ...tri.battlefield.map((i) => towerValue(i) + i.riskLayer));
   const shrinking = tri.battlefield.filter((i) => i.alerts.some((a) => a.kind === 'limitShrinking'));
   const bfTotal = tri.battlefield.reduce((s, i) => s + i.updated, 0);
@@ -31,7 +47,28 @@ export function renderBattle(d) {
     </button>`;
   }).join('');
 
-  const totems = tri.battlefield.map((i, k) => renderTotem(i, { maxValue, order: k + 1, isTarget: tri.target?.id === i.id, rate })).join('');
+  const simFor = (i) => {
+    if (!simData) return null;
+    const x = simData.at.per.get(i.id) || { paid: 0, left: i.updated, done: false };
+    return { ...x, until: simData.at.endDate };
+  };
+  const totems = tri.battlefield.map((i, k) => renderTotem(i, { maxValue, order: k + 1, isTarget: tri.target?.id === i.id, rate, sim: simFor(i) })).join('')
+    + (simData && Math.abs(simData.at.leftover) >= 1 ? moneyTowerHTML({ leftover: simData.at.leftover, reserve: simData.at.reserve, maxValue, until: simData.at.endDate }) : '');
+  const simBar = tri.battlefield.length ? `<div class="sim-bar">
+      <button type="button" class="btn sm${sim?.on ? ' primary' : ''}" data-act="sim-toggle" aria-pressed="${Boolean(sim?.on)}">${icon('spark')}${sim?.on ? 'Simulação ligada · toque para desligar' : 'Simular com o que vai entrar'}</button>
+      ${sim?.on ? `<div class="row wrap" style="gap:6px;margin-top:8px">${horizons(d.today).map(([h, l]) => `<button type="button" class="chip-btn${(sim.h || 0) === h ? ' on' : ''}" data-act="sim-h" data-h="${h}">${l}</button>`).join('')}</div>` : ''}
+    </div>` : '';
+  const simSummary = simData ? (() => {
+    const { at, proj } = simData;
+    const queue = tri.battlefield.length;
+    const doneN = tri.battlefield.filter((i) => at.per.get(i.id)?.done).length;
+    return `<div class="card tight sim-summary">
+      <div class="small">Até o fim de <b>${monthShort(at.endDate)}</b>: você tem <b class="num">${brl(d.cash)}</b> e entram <b class="num">${brl(at.income)}</b> livres; as essenciais levam <b class="num">${brl(at.essentials)}</b> e <b class="num c-cyan">${brl(at.toDebts)}</b> vão para dívidas.</div>
+      <div class="small" style="margin-top:6px">${doneN === queue ? `<span class="c-cyan">Todas as ${queue} torres caem nesse período.</span>` : `<b>${doneN}</b> de ${queue} torres caem nesse período · ainda faltam <b class="num c-magenta">${brl(at.missing)}</b>.`}${at.leftover > 0.004 ? ` Sobram <b class="num">${brl(at.leftover)}</b>.` : at.leftover < -0.004 ? ` <span class="c-magenta">Faltam ${brl(-at.leftover)} até para as essenciais.</span>` : ''}</div>
+      <div class="sim-legend"><span><i class="lg paid"></i>já pago</span><span><i class="lg plan"></i>o previsto paga</span><span><i class="lg ghost"></i>ainda falta</span><span><i class="lg money"></i>sobra</span></div>
+      <div class="tiny" style="margin-top:6px">Estimativa: ${proj.assumptions.join('; ')}. Nada é pago sozinho.</div>
+    </div>`;
+  })() : '';
 
   const dome = tri.quarantine.map((i) => {
     const offer = i.updated * (1 - (i.ob.settlementDiscountPercent || 80) / 100);
@@ -58,7 +95,8 @@ export function renderBattle(d) {
       ${shrinking.map((i) => `<div class="alert" style="margin-top:12px">${icon('alert')}<div><b>${esc(i.ob.beneficiary)}</b> — ${esc(i.alerts.find((a) => a.kind === 'limitShrinking').text)}</div></div>`).join('')}
       ${tri.battlefield.length ? `<div class="row between small" style="margin-top:12px"><span>Total: <b class="num">${brl(bfTotal)}</b></span>
         ${bleedTotal > 0 && rate > 0 ? `<span class="c-magenta">sangria ≈ ${brl(bleedTotal)}/mês</span>` : ''}</div>
-        <div class="totem-field">${totems}</div>
+        ${simBar}${simSummary}
+        <div class="totem-field${simData ? ' sim-on' : ''}">${totems}</div>
         <div class="tiny">Cinza = valor a pagar · cada bloco é uma parcela (ciano = paga) · topo magenta pulsante = juros, multa e risco de cartório. Toque num totem para agir.</div>`
     : '<div class="empty">Campo limpo. Nenhuma dívida ativa com pessoas ou cartões.</div>'}
     </section>

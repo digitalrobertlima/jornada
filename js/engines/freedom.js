@@ -59,8 +59,10 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
   const queue = [...tri.frontline, ...tri.battlefield].filter((i) => !i.isVital);
   const later = tri.quarantine.filter((i) => !i.isVital);
   const debts = [...queue, ...later].map((i) => ({
+    id: i.id, start: round2(i.updated), paid: [], bal: [],
     name: i.ob.beneficiary, balance: round2(i.updated), inst: i.installment ? num(i.installment.amount) : 0,
     rate: i.installment ? 0 : num(i.ob.monthlyInterestPercent) / 100, quarantine: i.zone === 'quarantine', doneAt: null,
+    urgent: i.zone === 'frontline' || i.late > 0,
   }));
   const debtTotal = round2(debts.reduce((s, d) => s + d.balance, 0));
   if (debts.some((d) => d.rate > 0)) assumptions.push('os juros cadastrados continuam iguais');
@@ -71,6 +73,7 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
   let months = null;
   let monthsAll = null;
   let worst = 0;
+  const monthEnd = [];
   for (let m = 0; m < maxMonths; m++) {
     const monthISO = ym(addMonths(start, m));
     const label = `${monthISO}-01`;
@@ -84,13 +87,16 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
       const pay = round2(Math.min(d.inst, d.balance, Math.max(0, avail)));
       d.balance = round2(d.balance - pay);
       avail = round2(avail - pay);
+      if (pay > 0) d.paid.push({ m, amount: pay });
     }
-    if (avail < 0) { worst = Math.min(worst, avail); carry = avail; continue; }
-    // reserva pequena antes de adiantar dívida
-    const toReserve = round2(Math.min(avail, Math.max(0, reserveTarget - reserve)));
-    reserve = round2(reserve + toReserve);
-    avail = round2(avail - toReserve);
-    // o resto ataca as dívidas na ordem; as guardadas para depois só quando a fila acabar
+    const income = round2(incomeIn(monthISO, false));
+    if (avail < 0) {
+      worst = Math.min(worst, avail);
+      carry = avail;
+      for (const d of debts) d.bal[m] = d.balance;
+      monthEnd.push({ m, income, essentials: need, carry, reserve });
+      continue;
+    }
     const attack = (list) => {
       for (const d of list) {
         if (avail <= 0.004) break;
@@ -98,14 +104,24 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
         const pay = round2(Math.min(avail, d.balance));
         d.balance = round2(d.balance - pay);
         avail = round2(avail - pay);
+        if (pay > 0) d.paid.push({ m, amount: pay });
       }
     };
+    // 1) urgentes (atrasadas, risco de cartório) 2) reserva pequena 3) resto da fila 4) guardadas para depois
+    attack(debts.filter((d) => d.urgent && !d.quarantine));
+    const toReserve = round2(Math.min(avail, Math.max(0, reserveTarget - reserve)));
+    reserve = round2(reserve + toReserve);
+    avail = round2(avail - toReserve);
     attack(debts.filter((d) => !d.quarantine));
     if (debts.every((d) => d.quarantine || d.balance <= 0.004)) attack(debts.filter((d) => d.quarantine));
     for (const d of debts) if (d.balance <= 0.004 && !d.doneAt) d.doneAt = label;
     carry = avail;
+    for (const d of debts) d.bal[m] = d.balance;
+    monthEnd.push({ m, income, essentials: need, carry, reserve });
     if (months === null && debts.every((d) => d.quarantine || d.balance <= 0.004)) months = m;
-    if (debts.every((d) => d.balance <= 0.004)) { monthsAll = m; break; }
+    if (monthsAll === null && debts.every((d) => d.balance <= 0.004)) monthsAll = m;
+    // depois de tudo quitado, segue alguns meses para mostrar a sobra crescendo
+    if (monthsAll !== null && m >= monthsAll + 12) break;
   }
   const nextMonth = ym(addMonths(start, Math.max(1, (Number(lastOneOff.slice(0, 4)) - Number(today.slice(0, 4))) * 12 + Number(lastOneOff.slice(5, 7)) - Number(today.slice(5, 7)) + 1)));
   const monthlyIncome = round2(incomeIn(nextMonth, false));
@@ -120,5 +136,34 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
     shortfall: round2(Math.max(0, -Math.min(0, (incomeIn(nextMonth, false) - (monthlyEssentials - Math.min(incomeIn(nextMonth, true), foodTransport))))) + (worst < 0 ? 0 : 0)),
     usedProfileIncome,
     assumptions,
+    start,
+    monthEnd,
+    debts: debts.map((d) => ({ id: d.id, name: d.name, start: d.start, paid: d.paid, bal: d.bal, quarantine: d.quarantine, doneAt: d.doneAt })),
+  };
+}
+
+/**
+ * Fotografia da projeção no fim do mês h-1 (h = quantos meses contar, 1 = só este mês).
+ * Para cada dívida: quanto foi pago no período, quanto falta e quando ela some (se sumir).
+ */
+export function atHorizon(proj, h) {
+  const last = Math.min(h, proj.monthEnd.length) - 1;
+  const end = proj.monthEnd[last] || { carry: 0, reserve: 0 };
+  const per = new Map();
+  for (const d of proj.debts) {
+    const paid = round2(d.paid.filter((p) => p.m <= last).reduce((s, p) => s + p.amount, 0));
+    const left = round2(d.bal[last] ?? d.start);
+    const doneM = d.doneAt ? Math.round((Number(d.doneAt.slice(0, 4)) - Number(proj.start.slice(0, 4))) * 12 + Number(d.doneAt.slice(5, 7)) - Number(proj.start.slice(5, 7))) : null;
+    per.set(d.id, { paid, left, done: doneM !== null && doneM <= last, doneAt: doneM !== null && doneM <= last ? d.doneAt : null, firstPay: d.paid.find((p) => p.m <= last) ? `${addMonths(proj.start, d.paid.find((p) => p.m <= last).m).slice(0, 7)}-01` : null });
+  }
+  const months = proj.monthEnd.slice(0, last + 1);
+  const income = round2(months.reduce((s, x) => s + x.income, 0));
+  const essentials = round2(months.reduce((s, x) => s + x.essentials, 0));
+  const toDebts = round2(proj.debts.reduce((s, d) => s + d.paid.filter((p) => p.m <= last).reduce((a, p) => a + p.amount, 0), 0));
+  const missing = round2(proj.debts.filter((d) => !d.quarantine).reduce((s, d) => s + (d.bal[last] ?? d.start), 0));
+  return {
+    last, endDate: `${addMonths(proj.start, last).slice(0, 7)}-01`, per,
+    income, essentials, toDebts, missing,
+    leftover: round2(end.carry + end.reserve), reserve: round2(end.reserve),
   };
 }

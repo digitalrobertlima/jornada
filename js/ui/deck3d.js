@@ -185,7 +185,72 @@ export function installmentBar(inst) {
   return `<div class="inst-bar" role="img" aria-label="${label}">${segs}</div>`;
 }
 
-export function renderTotem(item, { maxValue, order, isTarget, rate }) {
+// ---------------------------------------------------------------- Simulação (o que vai entrar)
+
+const MONTH_SHORT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+export const monthShort = (iso) => `${MONTH_SHORT[Number(iso.slice(5, 7)) - 1]}/${iso.slice(2, 4)}`;
+
+const prismHTML = (cls, h, bottom, k = null) => (h < 0.5 ? '' : `<div class="prism ${cls}"${k != null ? ` data-k="${k}"` : ''} style="height:${Math.max(0, h).toFixed(1)}px;bottom:${bottom.toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div>`);
+
+/** Torre na simulação: já pago (ciano) · o dinheiro previsto paga (verde) · ainda falta (fantasma). */
+function simSceneHTML(item, sim, maxValue) {
+  const inst = item.installment;
+  const { hb } = totemHeights(towerValue(item), 0, maxValue);
+  let html = '<div class="scene tower sim" aria-hidden="true">';
+  if (inst?.total >= 2) {
+    const blocks = Math.min(12, inst.total);
+    const scale = blocks / inst.total;
+    const paidBlocks = Math.round(inst.paid * scale);
+    const planInst = sim.done ? inst.total - inst.paid : Math.floor((sim.paid + 0.01) / Math.max(0.01, inst.amount));
+    const planBlocks = Math.min(blocks - paidBlocks, Math.round(planInst * scale) || (sim.paid > 0 && !sim.done ? 1 : 0));
+    const gap = 3;
+    const h = Math.max(6, (hb - gap * (blocks - 1)) / blocks);
+    for (let k = 0; k < blocks; k++) {
+      const cls = k < paidBlocks ? 'paid' : k < paidBlocks + planBlocks ? 'plan' : 'ghost';
+      html += prismHTML(cls, h, k * (h + gap), k);
+    }
+  } else {
+    const total = sim.paid + sim.left;
+    const fp = total > 0 ? Math.min(1, sim.paid / total) : 1;
+    const hp = sim.done ? hb : hb * fp;
+    html += prismHTML('plan', hp, 0);
+    if (!sim.done) html += prismHTML('ghost', hb - hp, hp);
+  }
+  return `${html}</div>`;
+}
+
+/** Torre de dinheiro que sobra (ou buraco, se faltar para as essenciais). */
+export function moneyTowerHTML({ leftover, reserve, maxValue, until }) {
+  const short = leftover < 0;
+  const { hb } = totemHeights(Math.abs(leftover), 0, maxValue);
+  const blocks = Math.max(1, Math.min(8, Math.ceil(hb / 18)));
+  const gap = 3;
+  const h = Math.max(6, (hb - gap * (blocks - 1)) / blocks);
+  let scene = `<div class="scene tower sim" aria-hidden="true">`;
+  for (let k = 0; k < blocks; k++) scene += prismHTML(short ? 'ghost' : 'money', h, k * (h + gap));
+  scene += '</div>';
+  return `<div class="totem money-tower${short ? ' short' : ''}" role="img" aria-label="${short ? `Faltam ${brl(-leftover)}` : `Sobram ${brl(leftover)}`}">
+    <div class="stage"><span class="badges"><span class="pill ${short ? 'magenta' : 'cyan'}">${short ? 'Falta' : 'Sobra'}</span></span>${scene}</div>
+    <div class="cap"><div class="name">${short ? 'Falta para as essenciais' : 'Dinheiro que sobra'}</div>
+      <div class="val num">${brl(Math.abs(leftover))}</div>
+      <div class="inst">${short ? `até o fim de ${monthShort(until)}` : `no fim de ${monthShort(until)}${reserve > 0 ? ` · ${brlShort(Math.min(reserve, leftover))} de reserva` : ''}`}</div></div>
+  </div>`;
+}
+
+export function renderTotem(item, { maxValue, order, isTarget, rate, sim = null }) {
+  if (sim) {
+    const status = sim.done
+      ? `<div class="sim-txt ok">✓ quitada em ${monthShort(sim.doneAt)}</div>`
+      : sim.paid > 0.004
+        ? `<div class="sim-txt part">${brlShort(sim.paid)} pagos até ${monthShort(sim.until)}</div><div class="sim-txt miss">falta ${brlShort(sim.left)}</div>`
+        : `<div class="sim-txt miss">falta ${brlShort(sim.left)} · o previsto não alcança</div>`;
+    return `<button type="button" class="totem sim${sim.done ? ' done' : ''}" data-act="obligation-open" data-id="${esc(item.id)}"
+        aria-label="${esc(item.ob.beneficiary)}: ${sim.done ? `quitada em ${monthShort(sim.doneAt)}` : `faltam ${brl(sim.left)}`}">
+      <div class="stage"><span class="order">#${order}</span>${simSceneHTML(item, sim, maxValue)}</div>
+      <div class="cap"><div class="name">${esc(item.ob.beneficiary)}</div><div class="val num">${brlShort(item.updated)}</div>${status}</div>
+    </button>`;
+  }
+
   const segmented = item.installment?.total >= 2;
   const h = totemHeights(item.principalPart, item.riskLayer, maxValue);
   const seg = segmented ? segmentedSceneHTML(item, maxValue) : null;

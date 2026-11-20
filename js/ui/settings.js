@@ -12,7 +12,7 @@ import { cloudSectionHTML, bindCloudSection } from './cloud.js';
 import { aiSettingsHTML, bindAISettings } from './assistant.js';
 import { openRecipesSheet, openRecipeCreator } from '../recipes/ui.js';
 
-export const APP_VERSION = '2.2.1';
+export const APP_VERSION = '2.3.0';
 
 function download(filename, text) {
   const blob = new Blob([text], { type: 'application/json' });

@@ -83,7 +83,7 @@ function render() {
     view.innerHTML = renderWallet(d, store);
     cleanup = mountWallet(view, d, store);
   } else if (store.tab === 'battle') {
-    view.innerHTML = renderBattle(d);
+    view.innerHTML = renderBattle(d, store.state, store.sim);
     totemHeights = mountBattle(view, totemHeights);
   } else {
     view.innerHTML = renderSovereign(d, store);
@@ -218,6 +218,8 @@ const actions = {
   aporte: () => openAporteSheet(),
   'sats-update': () => openSatsUpdateSheet(),
   assistant: () => openAssistant(),
+  'sim-toggle': () => { store.sim = { on: !store.sim?.on, h: store.sim?.h ?? 0 }; render(); },
+  'sim-h': (el) => { store.sim = { on: true, h: Number(el.dataset.h) }; render(); },
   recipes: () => openRecipesSheet(),
   'recipe-new': () => openRecipeCreator(),
   'pot-in': (el) => openPotMove(el.dataset.id, 'in'),
