@@ -23,7 +23,7 @@ import { openEssentials, openVictories, openEntry } from './ui/sheets.js';
 import { openForecastSheet, openForecastDetail, openPlanSheet } from './ui/forecast.js';
 import { schedulePush, renderCloudButton, syncNow, connectGoogle, cloudConnected, setReloadHook } from './ui/cloud.js';
 import { openSettings, clearAll } from './ui/settings.js';
-import { initAssistant, openAssistant, assistantOpen, assistantNote, preloadAI } from './ui/assistant.js';
+import { initAssistant, openAssistant, assistantOpen, assistantNote } from './ui/assistant.js';
 import { openRecipesSheet, openRecipeCreator, openPotMove, openPanelDetail, reminderDone } from './recipes/ui.js';
 import { applyRules, dueReminders } from './recipes/model.js';
 
@@ -376,7 +376,6 @@ async function boot() {
   if (params.get('action') === 'lancar' && store.state.profiles.length) openEntrySheet({ dir: 'out' });
   if (params.get('action') === 'assistente' && store.state.profiles.length) openAssistant();
   notifyDueReminders();
-  if (store.state.profiles.length) setTimeout(() => preloadAI(), 2500);
   registerSW();
   try {
     if (sessionStorage.getItem('jornada-updated') === '1') {

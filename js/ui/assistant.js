@@ -434,7 +434,8 @@ function onLogClick(e) {
   const a = b.dataset.asAct;
   if (a === 'download') startDownload();
   if (a === 'pause') AI.pauseDownload();
-  if (a === 'load') loadAI();
+  if (a === 'load') loadAI().then(() => { if (ai.status === 'ready') addBubble('assistant', 'IA ligada. Pode falar do seu jeito.'); }).catch(() => {});
+  if (a === 'unload') unloadAI();
   if (a === 'redownload') AI.deleteModel().then(() => { ai.status = 'absent'; renderSetup(); startDownload(); });
   if (a === 'help') addBubble('assistant', HELP);
   if (a === 'isolate') {
@@ -484,14 +485,10 @@ async function send(text) {
       try { await loadAI(); } catch { /* cai no básico */ }
       typing.remove();
     }
-    // pedidos claros vão direto para a ferramenta certa (rápido e sem chance da IA se confundir);
-    // a IA fica com conversa livre, perguntas abertas e o que o modo básico não entende
+    // IA ligada: tudo passa pelo raciocínio dela. IA desligada: tudo vai para o modo básico (regras).
+    if (ai.status === 'ready' && chat) { await aiTurn(text); return; }
     const r = parseBasic(text, store.today);
-    // pergunta longa e aberta que só "esbarrou" numa palavra (ex.: "data prevista") fica com a IA
-    const generic = ['previsoes', 'contas_a_pagar', 'minhas_contas', 'situacao', 'lancamentos'];
-    const longQuestion = text.trim().split(/\s+/).length >= 10;
-    if (r.tool && !(longQuestion && generic.includes(r.tool) && ai.status === 'ready' && chat)) await runAndShow(r.tool, r.args, r.fallback);
-    else if (ai.status === 'ready' && chat) await aiTurn(text);
+    if (r.tool) await runAndShow(r.tool, r.args, r.fallback);
     else addBubble('assistant', r.reply);
   } catch (err) {
     addBubble('assistant', `Algo deu errado: ${err.message || err}. Tente de novo.`);
@@ -569,22 +566,21 @@ async function refreshAI() {
   ai.total = st.total;
   if (st.done) {
     ai.status = ai.support.webgpu ? 'ready-file' : 'unsupported';
-    renderSetup();
-    if (ai.support.webgpu) loadAI().catch(() => {});
+    renderSetup(); // a IA só liga quando a pessoa tocar em "Ligar a IA"
     return;
   }
   ai.status = ai.support.ok ? (st.loaded > 0 ? 'paused' : 'absent') : 'unsupported';
   renderSetup();
 }
 
-/** Ao abrir o app: se a IA já foi baixada, começa a ligar em segundo plano (a conversa fica pronta mais rápido). */
-export async function preloadAI() {
-  try {
-    if (!AI.modelStatus().done || ai.status === 'ready' || ai.loadPromise) return;
-    ai.support = await AI.checkSupport();
-    if (!ai.support.webgpu) return;
-    await loadAI();
-  } catch { /* liga quando abrir o assistente */ }
+/** Desliga a IA (libera memória; o celular fica mais leve). O modo básico assume. */
+export async function unloadAI() {
+  chat = null;
+  primed = false;
+  ai.loadPromise = null;
+  try { await AI.unload(); } catch { /* ignore */ }
+  ai.status = 'ready-file';
+  renderSetup();
 }
 
 export function loadAI() {
@@ -621,8 +617,7 @@ function startDownload() {
     if (m.type === 'done') {
       ai.status = 'ready-file';
       ai.error = '';
-      toast('IA baixada! Ligando…', { tone: 'cyan' });
-      loadAI().then(() => { if (assistantOpen()) addBubble('assistant', 'Pronto: agora sou uma IA rodando no seu celular, sem internet. Pode falar comigo do seu jeito.'); }).catch(() => {});
+      toast('IA baixada! Toque em "Ligar a IA" quando quiser usar.', { tone: 'cyan' });
     }
     renderSetup(m.type === 'progress');
   });
@@ -631,7 +626,7 @@ function startDownload() {
 function renderSetup(progressOnly = false) {
   if (!panel) return;
   const status = panel.querySelector('[data-as="status"]');
-  const label = { ready: '● IA no aparelho · offline', loading: 'Ligando a IA…', downloading: 'Baixando a IA… · modo básico ativo' }[ai.status] || 'Modo básico · entende frases simples';
+  const label = { ready: '● IA ligada · offline', loading: 'Ligando a IA…', downloading: 'Baixando a IA… · modo básico ativo', 'ready-file': 'IA desligada · modo básico' }[ai.status] || 'Modo básico · entende frases simples';
   status.textContent = label;
   status.className = `tiny ${ai.status === 'ready' ? 'on' : ''}`;
   let card = logEl.querySelector('.as-setup');
@@ -661,8 +656,14 @@ function renderSetup(progressOnly = false) {
       ${ai.error && ai.status === 'paused' ? `<div class="tiny c-amber">${esc(ai.error)}</div>` : ''}
       <div class="tiny">Deixe o app aberto e a tela ligada. Se cair, continua de onde parou.</div>
       ${ai.status === 'paused' ? `<button class="btn primary sm" type="button" data-as-act="download">${icon('play')}Continuar</button>` : `<button class="btn sm ghost" type="button" data-as-act="pause">${icon('pause')}Pausar</button>`}`;
-  } else if (ai.status === 'ready-file' || ai.status === 'loading') {
-    html = `<b>Ligando a IA…</b><div class="tiny">Quando o celular fecha o app, a IA sai da memória e precisa ser carregada de novo (uns segundos). Sua conversa continua salva — pode escrever que eu respondo assim que ela ligar.</div>`;
+  } else if (ai.status === 'ready-file') {
+    html = `<b>${icon('cpu')} IA desligada</b><div class="tiny">Agora eu respondo no modo básico (frases simples, rápido e leve). Ligue a IA para conversar do seu jeito: ela leva uns segundos para carregar e deixa o celular mais pesado enquanto estiver ligada.</div>
+      <button class="btn primary sm" type="button" data-as-act="load">${icon('play')}Ligar a IA</button>`;
+  } else if (ai.status === 'loading') {
+    html = `<b>Ligando a IA…</b><div class="tiny">Uns segundos. Se escrever agora, eu respondo assim que ela ligar.</div>`;
+  } else if (ai.status === 'ready') {
+    html = `<div class="row between" style="gap:8px"><span class="tiny c-cyan">● IA ligada: tudo que você escrever passa pelo raciocínio dela.</span>
+      <button class="btn sm ghost" type="button" data-as-act="unload">Desligar IA</button></div>`;
   } else if (ai.status === 'error' && AI.needsIsolation(ai.error)) {
     html = `<b>Falta um passo para ligar a IA</b><div class="tiny">O motor da IA precisa que o app abra num modo protegido. É só tocar abaixo (o app recarrega e continua de onde parou).</div>
       <button class="btn primary sm" type="button" data-as-act="isolate">${icon('refresh')}Reabrir no modo da IA</button>`;
