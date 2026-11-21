@@ -164,23 +164,32 @@ function segmentedSceneHTML(item, maxValue) {
   return { html, paidBlocks };
 }
 
-/** Torre do cartão: a fatura à vista na base + um bloco por parcela de cada compra parcelada, tudo na mesma torre. */
+/** Torre do cartão: fatura à vista na base + blocos das compras parceladas (só a do mês, ou todas se agrupado). */
 function groupSceneHTML(item, maxValue) {
   const { hb, ht } = totemHeights(item.principalPart, item.riskLayer, maxValue);
   const gap = 3;
+  const total = Math.max(0.01, item.principalPart);
   let html = '<div class="scene tower" aria-hidden="true">';
   let bottom = 0;
   let k = 0;
   let paidBlocks = 0;
   for (const m of item.group) {
-    const share = Math.max(6, hb * (towerValue(m) / Math.max(1, item.principalPart)));
-    if (m.installment?.total >= 2) {
-      const blocks = Math.min(12, m.installment.total);
-      const paid = m.installment.total > 12 ? Math.round((m.installment.paid / m.installment.total) * blocks) : m.installment.paid;
-      const h = Math.max(5, (share - gap * (blocks - 1)) / blocks);
+    const share = Math.max(6, hb * (m.value / total));
+    const inst = m.item.installment;
+    if (m.part === 'full' && inst?.total >= 2) {
+      const blocks = Math.min(12, inst.total);
+      const paid = inst.total > 12 ? Math.round((inst.paid / inst.total) * blocks) : inst.paid;
+      const h = Math.max(4, (share - gap * (blocks - 1)) / blocks);
       for (let j = 0; j < blocks; j++, k++) {
         if (j < paid) paidBlocks++;
         html += `<div class="prism ${j < paid ? 'paid' : 'base'}" data-k="${k}" style="height:${h.toFixed(1)}px;bottom:${(bottom + j * (h + gap)).toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div>`;
+      }
+      bottom += blocks * (h + gap);
+    } else if (m.part === 'month') {
+      const blocks = Math.min(12, m.blocks);
+      const h = Math.max(4, (share - gap * (blocks - 1)) / blocks);
+      for (let j = 0; j < blocks; j++, k++) {
+        html += `<div class="prism base inst-cur" data-k="${k}" style="height:${h.toFixed(1)}px;bottom:${(bottom + j * (h + gap)).toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div>`;
       }
       bottom += blocks * (h + gap);
     } else {
@@ -297,7 +306,10 @@ export function renderTotem(item, { maxValue, order, isTarget, rate, sim = null 
   const segmented = item.installment?.total >= 2;
   const h = totemHeights(item.principalPart, item.riskLayer, maxValue);
   const seg = item.group ? groupSceneHTML(item, maxValue) : segmented ? segmentedSceneHTML(item, maxValue) : null;
-  const groupLines = item.group ? `<div class="inst">${item.group.map((m) => (m.ob.installmentAmount ? `${esc(m.ob.beneficiary.replace(/ · .*$/, ''))} ${m.installment ? `${m.installment.left ?? ''}x ${brlShort(m.installment.amount)}` : ''}` : `fatura ${brlShort(m.updated)}`)).join(' + ')}</div>` : '';
+  const short = (m) => esc(m.item.ob.beneficiary.replace(/ · .*$/, ''));
+  const groupLines = item.group ? `<div class="inst">${item.group.map((m) => (m.part === 'head' ? `fatura ${brlShort(m.owed)}`
+    : m.part === 'month' ? `${short(m)} ${m.blocks > 1 ? `${m.blocks}× ` : ''}${brlShort(m.inst)}`
+      : `${short(m)} ${m.item.installment?.left ?? ''}x ${brlShort(m.item.installment?.amount || 0)}`)).join(' + ')}</div>${item.future > 0.004 ? `<div class="tiny c-ink3">+ ${brlShort(item.future)} nas próximas faturas</div>` : ''}` : '';
   const bleedTxt = item.bleed > 0 && rate > 0 ? `sangra ${lifeTime(item.bleed / rate * 60)}/mês` : item.riskParts.protestRisk ? 'risco de cartório' : '';
   const late = item.late > 0;
   const status = late

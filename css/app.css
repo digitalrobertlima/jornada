@@ -698,3 +698,10 @@ details.more summary::-webkit-details-marker { display: none; }
 .prism.later .s { background: rgba(160, 170, 190, 0.06); border: 1px dotted rgba(180, 190, 210, 0.35); }
 .prism.later .t { background: rgba(160, 170, 190, 0.12); border: 1px dotted rgba(180, 190, 210, 0.4); }
 .prism.later .b { background: transparent; }
+.inst-months { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.inst-months span { font-size: 11px; padding: 3px 6px; border-radius: 6px; border: 1px dashed var(--border); color: var(--ink2, #9aa3b2); display: inline-flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.inst-months span b { font-weight: 600; font-size: 11px; }
+.inst-months span.cur { border-style: solid; border-color: rgba(0, 191, 255, 0.6); color: var(--ink, #e8ecf2); }
+.nowrap { white-space: nowrap; }
+.prism.inst-cur .f { background: linear-gradient(180deg, rgba(150, 175, 205, 0.75), rgba(110, 130, 160, 0.6)); border: 1px solid rgba(190, 210, 235, 0.7); }
+.prism.inst-cur .t { background: rgba(190, 210, 235, 0.6); }

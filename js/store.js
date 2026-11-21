@@ -60,6 +60,7 @@ export const store = {
     this.meta.journal = await vault.getMeta('journal', []);
     this.meta.google = await vault.getMeta('google', null);
     this.meta.lastSync = await vault.getMeta('lastSync', null);
+    this.meta.cardGrouped = await vault.getMeta('cardGrouped', false);
     this.meta.lastLocalChange = await vault.getMeta('lastLocalChange', 0);
     if (!this.state.profiles.some((p) => p.id === this.meta.activeProfileId)) {
       this.meta.activeProfileId = this.state.profiles[0]?.id || null;

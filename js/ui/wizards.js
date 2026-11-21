@@ -5,8 +5,8 @@ import {
   esc, openSheet, toast, formData, bindSegments, copyText, confirmSheet, haptic, celebrate,
 } from './dom.js';
 import { icon } from './icons.js';
-import { brl, lifeTime, parseMoney, dateHuman, dateShort } from '../core/format.js';
-import { addDays, isISODate } from '../core/dates.js';
+import { brl, brlShort, lifeTime, parseMoney, dateHuman, dateShort } from '../core/format.js';
+import { addDays, addMonths, isISODate } from '../core/dates.js';
 import { uid, num, round2 } from '../core/util.js';
 import {
   normalizeAccount, normalizeObligation, normalizeProfile, normalizeHousehold, VITAL_KINDS, ACCOUNT_TYPES, isRealLiquidity, installmentInfo,
@@ -597,8 +597,9 @@ export function openObligationDetail(id) {
           <option value="quarantine"${ob.zone === 'quarantine' ? ' selected' : ''}>Guardar para depois</option></select></label>
       </div>
       ${ob.type === 'card_debt' && ob.installmentAmount && ob.accountId ? `<label class="field"><span>Onde mostrar esta compra parcelada</span><select class="input" data-do-tower>
-        <option value="fatura"${ob.tower !== 'separada' ? ' selected' : ''}>Dentro da torre do cartão (total junto)</option>
-        <option value="separada"${ob.tower === 'separada' ? ' selected' : ''}>Numa torre só dela</option></select></label>` : ''}
+        <option value="fatura"${ob.tower !== 'separada' ? ' selected' : ''}>Agrupada em cima da torre do cartão</option>
+        <option value="separada"${ob.tower === 'separada' ? ' selected' : ''}>Agrupada numa torre só dela</option></select>
+        <small>Vale quando você liga "Agrupar parcelas". No modo normal, só a parcela do mês entra na fatura.</small></label>` : ''}
       ${item.isProtestable ? '<button class="btn sm ghost" data-do="protested" type="button">Foi protestado (sair da contagem)</button>' : ''}
       <button class="btn sm danger" data-do="delete" type="button">${icon('trash')}Excluir</button>
     </div>`,
@@ -639,15 +640,32 @@ export function openCardGroup(accountId) {
   const acc = store.state.accounts.find((a) => a.id === accountId);
   const items = d.tri.battlefield.filter((i) => i.ob.type === 'card_debt' && i.ob.accountId === accountId);
   const total = items.reduce((s, i) => s + i.updated, 0);
+  const head = items.filter((i) => !i.ob.installmentAmount);
+  const kids = items.filter((i) => i.ob.installmentAmount);
+  const thisInvoice = round2(head.reduce((s, i) => s + i.updated, 0) + kids.reduce((s, i) => s + Math.min(i.updated, i.installment?.amount || 0), 0));
+  const MS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const mo = (iso) => `${MS[Number(iso.slice(5, 7)) - 1]}/${iso.slice(2, 4)}`;
+  const months = (i) => {
+    const n = Math.min(12, i.installment?.left || 0);
+    if (!i.ob.dueDate || !n) return '';
+    return `<div class="inst-months">${Array.from({ length: n }, (_, k) => `<span class="${k === 0 ? 'cur' : ''}">${mo(addMonths(i.ob.dueDate, k))}<b>${brlShort(i.installment.amount)}</b></span>`).join('')}${(i.installment.left || 0) > 12 ? '<span>…</span>' : ''}</div>`;
+  };
   openSheet({
-    title: `Torre do cartão ${acc?.name || ''}`,
+    title: /cart[aã]o/i.test(acc?.name || '') ? acc.name : `Cartão ${acc?.name || ''}`,
     body: `<div class="stack">
-      <p class="small">Esta torre junta tudo o que você deve neste cartão: <b>${brl(total)}</b>. Toque numa parte para pagar ou ver detalhes.</p>
-      ${items.map((i) => `<button type="button" class="front-row" data-open="${esc(i.id)}">
+      <div class="card tight">
+        <div class="row between small"><span>Fatura do mês <span class="c-ink3">(à vista + parcela do mês)</span></span><b class="num nowrap">${brl(thisInvoice)}</b></div>
+        <div class="row between small"><span class="c-ink2">Parcelas dos próximos meses</span><span class="num">${brl(Math.max(0, total - thisInvoice))}</span></div>
+        <div class="row between small" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px"><span>Tudo o que você deve neste cartão</span><b class="num">${brl(total)}</b></div>
+      </div>
+      ${head.map((i) => `<button type="button" class="front-row" data-open="${esc(i.id)}">
         <span class="t">${esc(i.ob.beneficiary)}</span><span class="v num">${brl(i.updated)}</span>
-        <span class="tiny">${i.installment ? `${esc(i.installment.label)} · ${brl(i.installment.amount)} por parcela` : 'Fatura (compras à vista)'}${i.ob.dueDate ? ` · vence ${dateHuman(i.ob.dueDate)}` : ''}</span>
-        <span class="tiny" style="text-align:right">${i.ob.installmentAmount ? (i.ob.tower === 'separada' ? 'torre separada' : 'dentro da torre do cartão') : ''}</span></button>`).join('')}
-      <p class="tiny">Quer uma compra parcelada numa torre só dela? Abra a compra e troque "Onde mostrar".</p>
+        <span class="tiny">Compras à vista${i.ob.dueDate ? ` · vence ${dateHuman(i.ob.dueDate)}` : ''}</span><span></span></button>`).join('')}
+      ${kids.map((i) => `<button type="button" class="front-row" data-open="${esc(i.id)}">
+        <span class="t">${esc(i.ob.beneficiary)}</span><span class="v num">${brl(i.updated)}</span>
+        <span class="tiny">${i.installment ? `${esc(i.installment.label)} · ${brl(i.installment.amount)} por mês` : ''} · ${i.ob.tower === 'separada' ? 'agrupada numa torre só dela' : 'agrupada em cima do cartão'}</span><span></span>
+        ${months(i)}</button>`).join('')}
+      <p class="tiny">Cada parcela cai na fatura do mês dela. Para ver todas juntas, use "Agrupar parcelas do cartão" na tela de dívidas. Para escolher onde a compra aparece agrupada, abra a compra.</p>
     </div>`,
     onMount(el, close) {
       el.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => { close(); openObligationDetail(b.dataset.open); }));
@@ -835,8 +853,8 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
           : acc?.type === 'collateralized_yield_crypto' ? 'Parcelado trava garantia até pagar cada parcela.' : '';
         el.querySelector('#tower-box').hidden = !(canInst && n > 1 && amt > 0);
         el.querySelector('#tower-hint').textContent = v.tower === 'separada'
-          ? `A torre do cartão continua do mesmo tamanho. Esta compra ganha uma torre ao lado, com ${n} blocos de ${brl(round2(amt / n))}.`
-          : `A torre do cartão cresce ${brl(amt)}: vira a fatura na base + ${n} blocos de ${brl(round2(amt / n))} por cima. Você vê o total do cartão numa torre só.`;
+          ? `No dia a dia, só a parcela do mês (${brl(round2(amt / n))}) entra na fatura do cartão. Com "Agrupar parcelas" ligado, esta compra ganha uma torre ao lado com os ${n} blocos.`
+          : `No dia a dia, só a parcela do mês (${brl(round2(amt / n))}) entra na fatura do cartão. Com "Agrupar parcelas" ligado, os ${n} blocos aparecem em cima da torre do cartão.`;
       };
       form.addEventListener('input', sync);
       form.addEventListener('change', (ev) => {

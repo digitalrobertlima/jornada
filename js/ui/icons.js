@@ -42,6 +42,7 @@ const P = {
   pause: '<path d="M8 5v14M16 5v14"/>',
   play: '<path d="M7 5l12 7-12 7z"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
   btc: '<path d="M8 4v16M11 4v2M11 18v2M8 6h6a3 3 0 0 1 0 6H8M8 12h7a3 3 0 0 1 0 6H8"/>',
 };
 

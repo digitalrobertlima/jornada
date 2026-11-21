@@ -6,7 +6,7 @@ import { icon } from '../icons.js';
 import { brl, brlShort, dateShort } from '../../core/format.js';
 import { renderTotem, animateTotems, towerValue, moneyTowerHTML, monthShort } from '../deck3d.js';
 import { projectFreedom, atHorizon } from '../../engines/freedom.js';
-import { groupCards } from '../../engines/cardGroups.js';
+import { groupCards, groupSim, isCardChild } from '../../engines/cardGroups.js';
 import { deadlineOf, countdownText } from './hud.js';
 
 const ADD = [
@@ -24,7 +24,7 @@ function horizons(today) {
   return [[1, `Até fim de ${MONTHS[m]}`], [2, `Até fim de ${MONTHS[(m + 1) % 12]}`], [3, '3 meses'], [6, '6 meses'], [0, 'Até quitar tudo']];
 }
 
-export function renderBattle(d, state = null, sim = null) {
+export function renderBattle(d, state = null, sim = null, view = {}) {
   const { tri, rate, eras } = d;
   let simData = null;
   if (sim?.on && state) {
@@ -34,7 +34,10 @@ export function renderBattle(d, state = null, sim = null) {
     const at = atHorizon(proj, h);
     simData = { proj, at, h };
   }
-  const towers = groupCards(tri.battlefield, state?.accounts?.filter((a) => a.profileId === d.pid) || []);
+  const towers = groupCards(tri.battlefield, state?.accounts?.filter((a) => a.profileId === d.pid) || [], {
+    grouped: Boolean(view.cardGrouped), horizon: simData ? simData.h : null, today: d.today,
+  });
+  const hasCardInst = tri.battlefield.some(isCardChild);
   const maxValue = Math.max(1, ...towers.map((i) => towerValue(i) + i.riskLayer));
   const shrinking = tri.battlefield.filter((i) => i.alerts.some((a) => a.kind === 'limitShrinking'));
   const bfTotal = tri.battlefield.reduce((s, i) => s + i.updated, 0);
@@ -52,11 +55,7 @@ export function renderBattle(d, state = null, sim = null) {
 
   const simFor = (i) => {
     if (!simData) return null;
-    if (i.group) {
-      const xs = i.group.map((m) => simData.at.per.get(m.id) || { paid: 0, left: m.updated, done: false });
-      const done = xs.every((x) => x.done);
-      return { paid: round2(xs.reduce((t, x) => t + x.paid, 0)), left: round2(xs.reduce((t, x) => t + x.left, 0)), done, doneAt: done ? xs.map((x) => x.doneAt).filter(Boolean).sort().pop() : null, until: simData.at.endDate };
-    }
+    if (i.group) return groupSim(i, simData.at.per, simData.at.endDate);
     const x = simData.at.per.get(i.id) || { paid: 0, left: i.updated, done: false };
     if (x.essential && !x.dueIn) return { ...x, until: simData.at.endDate, later: true, left: 0 };
     return { ...x, until: simData.at.endDate };
@@ -66,6 +65,8 @@ export function renderBattle(d, state = null, sim = null) {
   const simBar = tri.battlefield.length ? `<div class="sim-bar">
       <button type="button" class="btn sm${sim?.on ? ' primary' : ''}" data-act="sim-toggle" aria-pressed="${Boolean(sim?.on)}">${icon('spark')}${sim?.on ? 'Simulação ligada · toque para desligar' : 'Simular com o que vai entrar'}</button>
       ${sim?.on ? `<div class="row wrap" style="gap:6px;margin-top:8px">${horizons(d.today).map(([h, l]) => `<button type="button" class="chip-btn${(sim.h || 0) === h ? ' on' : ''}" data-act="sim-h" data-h="${h}">${l}</button>`).join('')}</div>` : ''}
+      ${hasCardInst ? `<button type="button" class="btn sm${view.cardGrouped ? ' primary' : ' ghost'}" style="margin-top:8px" data-act="card-group-toggle" aria-pressed="${Boolean(view.cardGrouped)}">${icon('layers')}${view.cardGrouped ? 'Parcelas agrupadas · toque para ver só a do mês' : 'Agrupar parcelas do cartão'}</button>
+      <div class="tiny" style="margin-top:4px">${view.cardGrouped ? 'Cada compra parcelada mostra todas as parcelas: em cima da torre do cartão ou numa torre só dela (você escolhe na compra).' : 'A torre do cartão mostra a fatura do mês: compras à vista + a parcela deste mês de cada compra. As outras parcelas ficam no mês delas.'}</div>` : ''}
     </div>` : '';
   const simSummary = simData ? (() => {
     const { at, proj } = simData;

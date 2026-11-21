@@ -84,7 +84,7 @@ function render() {
     view.innerHTML = renderWallet(d, store);
     cleanup = mountWallet(view, d, store);
   } else if (store.tab === 'battle') {
-    view.innerHTML = renderBattle(d, store.state, store.sim);
+    view.innerHTML = renderBattle(d, store.state, store.sim, { cardGrouped: Boolean(store.meta.cardGrouped) });
     totemHeights = mountBattle(view, totemHeights);
   } else {
     view.innerHTML = renderSovereign(d, store);
@@ -204,6 +204,7 @@ const actions = {
   'obligation-new': (el) => openObligationWizard(el.dataset.kind),
   'obligation-open': (el) => openObligationDetail(el.dataset.id),
   'card-group': (el) => openCardGroup(el.dataset.account),
+  'card-group-toggle': async () => { await store.setMeta('cardGrouped', !store.meta.cardGrouped); render(); },
   'entry-new': (el) => openEntrySheet({ dir: el.dataset.dir || 'out', accountId: el.dataset.account || null }),
   'entry-del': (el) => removeEntry(el.dataset.id),
   'entry-open': (el) => openEntry(el.dataset.id),
