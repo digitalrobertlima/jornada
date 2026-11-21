@@ -24,6 +24,7 @@ export const HELP = `Sem a IA, eu entendo frases simples. Exemplos:
 • "vai cair 1600 de salário dia 5" · "vale-alimentação de 600 dia 1"
 • "devo 200 pra minha mãe" · "cadastra boleto da escola 350 dia 10"
 • "cria um pote de 300 pro gás" · "me lembra de ligar pro banco sexta"
+• "passa 200 da bipa pro cofrinho" · "tira 100 do cofrinho pra conta"
 • "quanto gastei de uber?" · "como distribuir o salário?" · "desfaz"`;
 
 /**
@@ -38,6 +39,24 @@ export function parseBasic(text, today) {
   if (/^(ajuda|help|comandos|o que (voce|vc) (faz|sabe)|como (te )?uso)/.test(t)) return { reply: HELP };
   if (/^(desfaz|desfazer|desfaca|volta|voltar|cancela a ultima|errei)/.test(t)) return { tool: 'desfazer', args: {} };
   if (/(ultimas acoes|o que (eu )?fiz)/.test(t)) return { tool: 'ultimas_acoes', args: {} };
+
+  // mover saldo entre contas: "passa 200 da bipa pro cofrinho", "tira 100 do cofrinho pra conta"
+  if (/\b(move|mover|moveu|passa|passar|passei|manda|mandar|mandei|transfere|transferir|transferi|joga|jogar|joguei|tira|tirar|tirei|resgata|resgatar|resgatei|coloca|colocar|botei|bota|guarda|guardar|guardei|deposita|depositar)\b/.test(t)
+      && /\b(cofrinh\w*|caixinh\w*|limite|garantia|colateral|conta corrente|pix|conta)\b/.test(t)
+      && /(\bpr[ao]\b|\bpara\b|\bem\b|\bno\b|\bna\b|\bpro\b|\bpra\b|\bdo\b|\bda\b|\bde\b)/.test(t)
+      && !/pote|lembr/.test(t)) {
+    const todo = /\b(tudo|todo|total)\b/.test(t);
+    // divide em origem/destino: "da X pro Y" | "pro Y da X"
+    const orig = t.match(/\b(?:d[aoe]s?|de)\s+(.+?)(?=\s+(?:pr[ao]|para|no|na)\b|$)/);
+    const dest = t.match(/\b(?:pr[ao]|para)\s+(?:o |a |meu |minha )?(.+?)(?=\s+(?:d[aoe]s?|de)\b|$)/) || t.match(/\b(?:no|na)\s+(.+?)(?=\s+(?:d[aoe]s?|de)\b|$)/);
+    const tira = /\b(tira|tirar|tirei|resgata|resgatar|resgatei)\b/.test(t);
+    const clean = (x) => (x || '').replace(/\d[\d.,]*( mil)?/g, ' ').replace(/\b(r|reais|real|o|a|meu|minha|saldo|que|tenho|tem|dinheiro)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    let de = clean(orig?.[1]); let para = clean(dest?.[1]);
+    if (tira && !orig && dest) { de = para; para = 'conta corrente pix'; } // "tira 100 do cofrinho" sem destino
+    if (tira && orig && !dest) { de = clean(orig[1]); para = 'conta corrente pix'; }
+    if (/\b(guarda|guardar|guardei|coloca|colocar|botei|bota)\b/.test(t) && !orig && dest) { para = clean(dest[1]); de = 'conta corrente pix'; }
+    if (de || para) return { tool: 'mover_saldo', args: { de, para, valor: todo ? 'tudo' : valor || undefined } };
+  }
 
   // peças
   if (/(cria|criar|faz|fazer|monta|montar|abre|abrir|quero) (um |uma )?pote/.test(t) || /^pote /.test(t)) {

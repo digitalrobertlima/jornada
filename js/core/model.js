@@ -12,6 +12,7 @@ export const ACCOUNT_TYPES = {
   benefit_card: { label: 'Vale / Cartão Benefício (travado)', short: 'Saldo travado', real: false },
   credit_card: { label: 'Cartão de Crédito', short: 'Limite (não é seu)', real: false },
   collateralized_yield_crypto: { label: 'Cartão com Garantia (BTC)', short: 'Garantia + yield', real: false },
+  savings_pot: { label: 'Cofrinho / Caixinha (rende CDI)', short: 'Guardado · rende', real: false },
 };
 
 export const OBLIGATION_TYPES = {
@@ -87,6 +88,10 @@ export function normalizeAccount(a) {
   switch (out.type) {
     case 'checking_cash':
       out.balance = round2(a.balance);
+      break;
+    case 'savings_pot':
+      out.balance = round2(a.balance);
+      out.cdiPercent = num(a.cdiPercent, 100);
       break;
     case 'benefit_card':
       out.balance = round2(a.balance);

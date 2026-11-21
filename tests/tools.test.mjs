@@ -182,3 +182,17 @@ test('"quando vou respirar?" sem dinheiro sobrando explica por que não dá data
   const r = await runTool(tools, 'quando_fico_livre');
   assert.match(r.text, /Ainda não dá para prever/);
 });
+
+test('mover_saldo: Pix → cofrinho pelo nome, com desfazer', async () => {
+  const { tools, state, api } = setup();
+  const pix = state.accounts.find((a) => a.profileId === 'prof_01' && a.type === 'checking_cash');
+  await runTool(tools, 'cadastrar_conta', { nome: 'Cofrinho Mercado Livre', tipo: 'cofrinho', saldo: '50' }).then((r) => r.execute());
+  const before = state.accounts.find((a) => a.id === pix.id).balance;
+  const r = await runTool(tools, 'mover_saldo', { de: pix.name, para: 'cofrinho', valor: '200' });
+  assert.equal(r.preview.title, 'Mover saldo');
+  await r.execute();
+  assert.equal(state.accounts.find((a) => a.id === pix.id).balance, before - 200);
+  assert.equal(state.accounts.find((a) => a.name === 'Cofrinho Mercado Livre').balance, 250);
+  const bad = await runTool(tools, 'mover_saldo', { de: 'cofrinho', para: pix.name, valor: '999999' });
+  assert.match(bad.error, /tem só/);
+});

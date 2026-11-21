@@ -22,6 +22,10 @@ function cardFront(a) {
       main = `<div class="val num">${brl(a.balance)}</div>`;
       sub = 'Saldo restrito · não paga boleto nem aluguel';
       break;
+    case 'savings_pot':
+      main = `<div class="val num">${brl(a.balance)}</div>`;
+      sub = `Guardado · rende ${a.cdiPercent ?? 100}% do CDI · resgate quando quiser`;
+      break;
     case 'credit_card':
       main = `<div class="val num">${brl(a.limitAvailable)}</div>`;
       sub = `disponível de ${brl(a.limitTotal)}${a.dueDay ? ` · vence dia ${a.dueDay}` : ''}`;
@@ -40,6 +44,7 @@ function cardFront(a) {
   const badge = a.type === 'credit_card' && a.limitShrinking
     ? `<span class="pill magenta">${icon('alert')}Corte de limite</span>`
     : a.type === 'checking_cash' ? '<span class="pill cyan">Real</span>'
+      : a.type === 'savings_pot' ? `<span class="pill cyan">${a.cdiPercent ?? 100}% CDI</span>`
       : a.type === 'collateralized_yield_crypto' ? `<span class="pill cyan">${icon('btc')}${a.yieldConfig?.cdiPercent ?? 100}% CDI</span>`
         : '<span class="chip"></span>';
   return `<div class="face front">
@@ -53,6 +58,7 @@ function cardBack(a) {
   const rows = [];
   if (a.type === 'checking_cash') rows.push(['Saldo', brl(a.balance)]);
   if (a.type === 'benefit_card') rows.push(['Saldo restrito', brl(a.balance)], ['Conta como liquidez?', 'Não']);
+  if (a.type === 'savings_pot') rows.push(['Guardado', brl(a.balance)], ['Rende', `${a.cdiPercent ?? 100}% do CDI`], ['Conta como liquidez?', 'Só depois de mover para o Pix']);
   if (a.type === 'credit_card') {
     rows.push(['Limite total', brl(a.limitTotal)], ['Disponível', brl(a.limitAvailable)], ['Em uso', brl(Math.max(0, a.limitTotal - a.limitAvailable))]);
     if (a.closingDay) rows.push(['Fecha / vence', `dia ${a.closingDay} / dia ${a.dueDay || '—'}`]);
@@ -67,6 +73,7 @@ function cardBack(a) {
     ${rows.map(([k, v]) => `<div class="row between"><span class="c-ink2">${k}</span><span class="num">${v}</span></div>`).join('')}
     <div class="row" style="margin-top:auto;gap:6px">
       <span class="btn sm" data-act="account-edit" data-id="${esc(a.id)}" role="button" tabindex="0">${icon('edit')}Editar</span>
+      ${['checking_cash', 'savings_pot', 'collateralized_yield_crypto'].includes(a.type) ? `<span class="btn sm" data-act="move-open" data-from="${esc(a.id)}" role="button" tabindex="0">⇄ Mover</span>` : ''}
       <span class="btn sm" data-act="entry-new" data-account="${esc(a.id)}" data-dir="out" role="button" tabindex="0">${icon('minus')}Gasto</span>
     </div>
   </div>`;

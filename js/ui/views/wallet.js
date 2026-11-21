@@ -30,11 +30,12 @@ export function renderWallet(d, store) {
   }).join('');
 
   return `<div class="stack">
-    <div class="section-title"><h2>Contas & Cartões</h2><button class="btn sm ghost" data-act="account-new">${icon('plus')}Conta</button></div>
+    <div class="section-title"><h2>Contas & Cartões</h2><div class="row" style="gap:6px"><button class="btn sm" data-act="move-open">⇄ Mover saldo</button><button class="btn sm ghost" data-act="account-new">${icon('plus')}Conta</button></div></div>
     ${renderDeck(accounts)}
 
     <div class="liq-chips">
       <div class="liq-chip real"><span class="tiny">Liquidez real</span><b class="num">${brl(liq.real)}</b></div>
+      ${liq.savings > 0 ? `<div class="liq-chip"><span class="tiny">Cofrinhos (rendendo)</span><b class="num">${brl(liq.savings)}</b></div>` : ''}
       <div class="liq-chip"><span class="tiny">Benefício (restrito)</span><b class="num">${brl(liq.benefit)}</b></div>
       <div class="liq-chip"><span class="tiny">Limite de crédito</span><b class="num">${brl(liq.creditAvailable)}</b></div>
       <div class="liq-chip"><span class="tiny">Garantia livre / travada</span><b class="num">${brl(liq.collateralFree)} <span class="tiny">/ ${brl(liq.collateralLocked)}</span></b></div>

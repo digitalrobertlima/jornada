@@ -686,3 +686,7 @@ details.more summary::-webkit-details-marker { display: none; }
 .sim-txt.miss { color: #ff5aa8; }
 .money-tower .val { color: #ffd66b; }
 .money-tower.short .val { color: #ff5aa8; }
+
+/* mover saldo */
+.move-swap { display: flex; justify-content: center; }
+.acard.t-savings_pot .front { background: radial-gradient(120% 100% at 100% 100%, rgba(255, 196, 61, 0.18), transparent 55%), linear-gradient(140deg, #2a2616, #12110b); border-color: rgba(255, 196, 61, 0.3); }

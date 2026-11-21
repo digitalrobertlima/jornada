@@ -18,6 +18,7 @@ import {
   openEntrySheet, removeEntry, openAccountWizard, openProfileWizard, openAporteSheet, openSatsUpdateSheet,
 } from './ui/wizards.js';
 import { openSimulator } from './ui/simulator.js';
+import { openMoveSheet } from './ui/move.js';
 import { openEssentials, openVictories, openEntry } from './ui/sheets.js';
 import { openForecastSheet, openForecastDetail, openPlanSheet } from './ui/forecast.js';
 import { schedulePush, renderCloudButton, syncNow, connectGoogle, cloudConnected, setReloadHook } from './ui/cloud.js';
@@ -212,6 +213,7 @@ const actions = {
   victories: () => openVictories(),
   'account-new': () => openAccountWizard(),
   'account-edit': (el) => openAccountWizard(el.dataset.id),
+  'move-open': (el) => openMoveSheet({ from: el.dataset.from || null, to: el.dataset.to || null }),
   'profile-new': () => openProfileWizard(),
   'demo-clear': () => clearAll(afterReload),
   'market-refresh': () => refreshMarket(true),

@@ -13,6 +13,7 @@ import {
   INCOME_KINDS, addForecast, confirmForecast, pendingForecasts, planDistribution,
 } from '../engines/forecast.js';
 import { buildGuide } from '../engines/guide.js';
+import { moveMoney, transferAccounts, movableFrom, placeName, shownValue } from '../engines/transfer.js';
 import { projectFreedom, monthLabel } from '../engines/freedom.js';
 import { describeAction } from '../engines/journal.js';
 import {
@@ -181,6 +182,7 @@ ${hip}` };
         if (a.type === 'checking_cash') return `• ${a.name} (conta/Pix, livre): ${brl(a.balance)}`;
         if (a.type === 'benefit_card') return `• ${a.name} (vale de ${a.lock === 'transporte' ? 'transporte' : a.lock === 'outro' ? 'outro uso' : 'alimentação'}, travado): ${brl(a.balance)}`;
         if (a.type === 'credit_card') return `• ${a.name} (cartão de crédito): limite disponível ${brl(a.limitAvailable)} de ${brl(a.limitTotal)}${a.limitShrinking ? ' · banco cortando limite' : ''}`;
+        if (a.type === 'savings_pot') return `• ${a.name} (cofrinho, rende ${a.cdiPercent ?? 100}% do CDI): ${brl(a.balance)}`;
         return `• ${a.name} (${ACCOUNT_TYPES[a.type]?.label || a.type}): garantia livre ${brl(a.limitAvailable)}`;
       }).join('\n'),
     };
@@ -455,14 +457,69 @@ ${hip}` };
     };
   });
 
+  const TYPE_WORDS = [
+    ['savings_pot', /cofrinh|caixinh|guardad|poupanc|reserva|investiment/],
+    ['collateralized_yield_crypto', /limite|cartao|garantia|colateral|credito|bitcoin|btc/],
+    ['checking_cash', /\bpix\b|conta corrente|corrente|saldo|\bconta\b|dinheiro/],
+  ];
+  function pickPlace(state, pid, query, what) {
+    const all = transferAccounts(state, pid);
+    const q = norm(query);
+    if (!q) throw new Error(`${what}?`);
+    const types = TYPE_WORDS.filter(([, re]) => re.test(q)).map(([t]) => t);
+    let pool = all;
+    // 1º: o nome da conta aparece na frase? ("bipa", "mercado livre")
+    const byName = all.filter((a) => norm(a.name).split(' ').filter((w) => w.length > 2).some((w) => q.includes(w)));
+    if (byName.length) pool = byName;
+    if (types.length) {
+      const byType = pool.filter((a) => types.includes(a.type));
+      if (byType.length) pool = byType;
+      else if (!byName.length) pool = all.filter((a) => types.includes(a.type));
+    }
+    if (pool.length === 1) return pool[0];
+    if (!pool.length) {
+      const err = new Error(`Não achei ${what} parecido com "${query}". Tenho: ${all.map((a) => a.name).join(', ')}.`);
+      err.options = all.map((a) => a.name); err.query = query; throw err;
+    }
+    // vários: pergunta qual
+    const err = new Error(`Qual ${what}? ${pool.map((a) => a.name).join(' ou ')}?`);
+    err.options = pool.map((a) => a.name); err.query = query; throw err;
+  }
+
+  def('mover_saldo', 'write', 'Move dinheiro entre as próprias contas: Pix ↔ cofrinho ↔ limite do cartão com garantia (não é gasto nem entrada).', {
+    de: 'de onde sai (ex.: bipa pix, cofrinho mercado livre, limite do cartão bipa)', para: 'para onde vai', valor: 'número, ou "tudo"',
+  }, (a = {}) => {
+    const { state, pid } = ctx();
+    if (transferAccounts(state, pid).length < 2) throw new Error('Preciso de pelo menos duas contas (ex.: Pix e cofrinho). Cadastre com "cadastrar cofrinho".');
+    const A = pickPlace(state, pid, a.de, 'conta de origem');
+    const pool = transferAccounts(state, pid).filter((x) => x.id !== A.id);
+    const B = a.para ? pickPlace({ ...state, accounts: state.accounts.filter((x) => x.id !== A.id) }, pid, a.para, 'conta de destino') : null;
+    if (!B) throw new Error(`Para onde vai? ${pool.map((x) => x.name).join(', ')}.`);
+    const todo = /^(tudo|todo|total|o que (tem|dá|da))/i.test(String(a.valor || '').trim());
+    const valor = todo ? movableFrom(A) : money(a.valor);
+    const r = moveMoney(state, { fromId: A.id, toId: B.id, amount: valor });
+    return {
+      preview: {
+        title: 'Mover saldo',
+        lines: [`${brl(r.amount)}: ${placeName(A)} → ${placeName(B)}`,
+          `${A.name}: ${brl(shownValue(A))} → ${brl(shownValue(r.from))}`,
+          `${B.name}: ${brl(shownValue(B))} → ${brl(shownValue(r.to))}`],
+      },
+      execute: async () => {
+        const act = await api.commit(r.changes, { label: `Moveu ${brl(r.amount)}: ${placeName(A)} → ${placeName(B)}` });
+        return { text: `Pronto: ${brl(r.amount)} saiu de ${A.name} e foi para ${B.name}.`, actionId: act?.id };
+      },
+    };
+  });
+
   def('cadastrar_conta', 'write', 'Cadastra conta bancária (Pix), vale/benefício ou cartão de crédito.', {
-    nome: 'ex.: Nubank, Caju', tipo: 'pix | vale | credito', saldo: 'saldo atual (opcional)', uso: 'para vale: alimentacao | transporte (opcional)', limite: 'para crédito (opcional)',
+    nome: 'ex.: Nubank, Caju', tipo: 'pix | vale | credito | cofrinho', saldo: 'saldo atual (opcional)', uso: 'para vale: alimentacao | transporte (opcional)', limite: 'para crédito (opcional)',
   }, (a = {}) => {
     const { pid } = ctx();
     const nome = String(a.nome || '').trim();
     if (!nome) throw new Error('Qual o nome da conta?');
     const t = norm(a.tipo);
-    const type = /vale|benef|alimenta|refei|transporte/.test(t) ? 'benefit_card' : /credito|cartao/.test(t) ? 'credit_card' : 'checking_cash';
+    const type = /cofrinh|caixinh|guardad/.test(t) ? 'savings_pot' : /vale|benef|alimenta|refei|transporte/.test(t) ? 'benefit_card' : /credito|cartao/.test(t) ? 'credit_card' : 'checking_cash';
     const acc = normalizeAccount({
       id: uid('acc'), profileId: pid, name: nome, type, balance: money(a.saldo) || 0,
       lock: /transporte/.test(norm(`${a.uso} ${a.tipo}`)) ? 'transporte' : 'alimentacao',

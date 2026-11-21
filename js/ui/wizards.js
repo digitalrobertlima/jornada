@@ -767,6 +767,7 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
           checking_cash: 'Mexe no caixa real de hoje.',
           benefit_card: 'Saldo restrito: não mexe no caixa real.',
           credit_card: v.direction === 'out' ? 'Compra no crédito: não mexe no caixa hoje, mas aumenta a dívida do cartão.' : 'Estorno no cartão.',
+          savings_pot: 'Mexe só no cofrinho (não é caixa livre).',
           collateralized_yield_crypto: v.direction === 'out' ? 'Gasto no cartão com garantia: gera cashback em sats.' : 'Depósito na garantia (rende CDI em BTC).',
         }[acc?.type] || '';
         el.querySelector('#acc-hint').textContent = hint;
@@ -838,7 +839,11 @@ export function openAccountWizard(existingId = null) {
       <label class="field"><span>Tipo</span><select class="input" name="type"${ex ? ' disabled' : ''}>
         ${Object.entries(ACCOUNT_TYPES).map(([k, t]) => `<option value="${k}"${k === type ? ' selected' : ''}>${t.label}</option>`).join('')}</select></label>
       ${textField('name', 'Nome', ex?.name || '', { required: true, placeholder: 'Ex.: Nubank, Caju, Bipa' })}
-      <div data-t="checking_cash benefit_card">${moneyField('balance', 'Saldo atual', ex?.balance ?? '', { big: true })}</div>
+      <div data-t="checking_cash benefit_card savings_pot">${moneyField('balance', 'Saldo atual', ex?.balance ?? '', { big: true })}</div>
+      <div data-t="savings_pot" class="stack">
+        ${numField('cdiPercent', '% do CDI que rende', ex?.cdiPercent ?? 100)}
+        <p class="tiny">Cofrinho (Bipa, Mercado Pago, Nubank…). O dinheiro daqui só vira Pix depois que você usa "⇄ Mover saldo".</p>
+      </div>
       <div data-t="benefit_card" class="stack">
         <label class="field"><span>Esse saldo serve para</span><select class="input" name="lock">
           ${[['alimentacao', 'Alimentação / mercado'], ['transporte', 'Transporte'], ['outro', 'Outro uso']].map(([k, l]) => `<option value="${k}"${(ex?.lock || 'alimentacao') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -873,7 +878,7 @@ export function openAccountWizard(existingId = null) {
         if (!v.name.trim()) { toast('Dê um nome à conta.', { tone: 'magenta' }); return; }
         const acc = normalizeAccount({
           ...(ex || { id: uid('acc'), profileId: store.pid }), type: t, name: v.name.trim(),
-          balance: parseMoney(v.balance), lock: v.lock, limitTotal: parseMoney(v.limitTotal),
+          balance: parseMoney(v.balance), lock: v.lock, cdiPercent: num(v.cdiPercent, 100), limitTotal: parseMoney(v.limitTotal),
           limitAvailable: v.limitAvailable === '' ? parseMoney(v.limitTotal) : parseMoney(v.limitAvailable),
           closingDay: num(v.closingDay) || null, dueDay: num(v.dueDay) || null, limitShrinking: Boolean(v.limitShrinking),
           collateralTotal: parseMoney(v.collateralTotal), lockedInstallments: parseMoney(v.lockedInstallments),

@@ -89,3 +89,6 @@ Ao publicar uma nova versão, troque `VERSION` em `sw.js` para os aparelhos rece
 Peças são dados: entram no backup e na sincronização, têm desfazer e podem ser desligadas. Quando nada resolve, o assistente anota um **pedido de função** (Ajustes → Pedidos de função → Enviar abre uma issue no GitHub com o texto, nenhum dado pessoal).
 
 Testes: `npm test` (unidade, sem navegador). O caminho da IA é testado com um modelo simulado (`window.__JORNADA_FAKE_LLM__`); o modelo real só roda no celular.
+
+## v2.4 — Mover saldo
+Botão **⇄ Mover saldo** (aba Dinheiro e verso de cada cartão) passa dinheiro entre Pix, cofrinhos (novo tipo, rende % do CDI) e o limite do cartão com garantia (Bipa). Não é gasto nem entrada, e tem "Desfazer". O assistente entende: "passa 200 da bipa pro cofrinho", "tira 100 do cofrinho".

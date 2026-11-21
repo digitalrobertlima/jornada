@@ -19,10 +19,11 @@ export function realLiquidity(state, profileId) {
 }
 
 export function liquidityBreakdown(state, profileId) {
-  const out = { real: 0, benefit: 0, creditAvailable: 0, collateralFree: 0, collateralLocked: 0, collateralTotal: 0 };
+  const out = { real: 0, savings: 0, benefit: 0, creditAvailable: 0, collateralFree: 0, collateralLocked: 0, collateralTotal: 0 };
   for (const a of profileAccounts(state, profileId)) {
     if (isRealLiquidity(a)) out.real += num(a.balance);
     else if (a.type === 'benefit_card') out.benefit += num(a.balance);
+    else if (a.type === 'savings_pot') out.savings += num(a.balance);
     else if (a.type === 'credit_card') out.creditAvailable += num(a.limitAvailable);
     else if (a.type === 'collateralized_yield_crypto') {
       out.collateralTotal += num(a.collateralTotal);
@@ -122,6 +123,7 @@ function applyEffects(state, entry, changes, { btcPrice } = {}) {
   const sign = entry.direction === 'in' ? 1 : -1;
   switch (acc.type) {
     case 'checking_cash':
+    case 'savings_pot':
     case 'benefit_card':
       acc.balance = round2(num(acc.balance) + sign * amount);
       break;
@@ -215,7 +217,7 @@ export function removeLedgerEntry(state, entryId) {
   const acc = clone(accRef);
   const amount = num(e.amount);
   const sign = e.direction === 'in' ? 1 : -1;
-  if (acc.type === 'checking_cash' || acc.type === 'benefit_card') {
+  if (acc.type === 'checking_cash' || acc.type === 'benefit_card' || acc.type === 'savings_pot') {
     acc.balance = round2(num(acc.balance) - sign * amount);
   } else if (acc.type === 'credit_card' && e.direction === 'out') {
     acc.limitAvailable = round2(Math.min(num(acc.limitTotal), num(acc.limitAvailable) + amount));
