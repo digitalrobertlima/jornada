@@ -1,7 +1,7 @@
 // Fluxo diário, Linha d'Água, Onda de Liquidez e ações sobre o ledger.
 // As funções de ação NÃO mexem no estado: devolvem `changes` para o app salvar.
 
-import { addDays, addMonths, diffDays } from '../core/dates.js';
+import { addDays, addMonths, diffDays, nextDayOfMonth } from '../core/dates.js';
 import { isRealLiquidity } from '../core/model.js';
 import { clone, num, round2, uid } from '../core/util.js';
 import { triage, memberIds, openFor, shareAmount } from './triage.js';
@@ -128,10 +128,11 @@ function applyEffects(state, entry, changes, { btcPrice } = {}) {
       acc.balance = round2(num(acc.balance) + sign * amount);
       break;
     case 'credit_card': {
-      acc.limitAvailable = round2(Math.min(num(acc.limitTotal), num(acc.limitAvailable) - sign * amount));
+      // compra (out) gasta limite e aumenta a fatura; estorno (in) devolve limite e abate a fatura
+      acc.limitAvailable = round2(Math.max(0, Math.min(num(acc.limitTotal), num(acc.limitAvailable) + sign * amount)));
+      const isDebt = (o) => o.type === 'card_debt' && o.accountId === acc.id && o.status !== 'paid';
+      const existing = changes.obligations.find(isDebt) || state.obligations.find(isDebt);
       if (entry.direction === 'out') {
-        const isDebt = (o) => o.type === 'card_debt' && o.accountId === acc.id && o.status !== 'paid';
-        const existing = changes.obligations.find(isDebt) || state.obligations.find(isDebt);
         const debt = existing
           ? clone(changes.obligations.find((o) => o.id === existing.id) || existing)
           : {
@@ -139,8 +140,19 @@ function applyEffects(state, entry, changes, { btcPrice } = {}) {
             beneficiary: `Fatura ${acc.name}`, accountId: acc.id, principalAmount: 0, totalAmount: 0, balance: 0,
             monthlyInterestPercent: 0, status: 'open', rules: {}, createdAt: entry.date,
           };
+        // fatura nova: vence no próximo dia de vencimento do cartão (uma compra depois do fechamento cai na fatura seguinte)
+        if (!debt.dueDate && acc.dueDay) {
+          const ref = acc.closingDay && Number(entry.date.slice(8, 10)) > acc.closingDay ? addMonths(entry.date, 1, 1) : entry.date;
+          debt.dueDate = nextDayOfMonth(acc.dueDay, ref);
+        }
         debt.balance = round2(num(debt.balance) + amount);
         debt.principalAmount = round2(num(debt.principalAmount) + amount);
+        debt.totalAmount = debt.balance;
+        upsert(changes.obligations, debt);
+      } else if (existing) {
+        const debt = clone(changes.obligations.find((o) => o.id === existing.id) || existing);
+        debt.balance = round2(Math.max(0, num(debt.balance) - amount));
+        debt.principalAmount = round2(Math.max(0, num(debt.principalAmount) - amount));
         debt.totalAmount = debt.balance;
         upsert(changes.obligations, debt);
       }
@@ -219,13 +231,14 @@ export function removeLedgerEntry(state, entryId) {
   const sign = e.direction === 'in' ? 1 : -1;
   if (acc.type === 'checking_cash' || acc.type === 'benefit_card' || acc.type === 'savings_pot') {
     acc.balance = round2(num(acc.balance) - sign * amount);
-  } else if (acc.type === 'credit_card' && e.direction === 'out') {
-    acc.limitAvailable = round2(Math.min(num(acc.limitTotal), num(acc.limitAvailable) + amount));
+  } else if (acc.type === 'credit_card') {
+    const back = e.direction === 'out' ? 1 : -1; // desfazer compra devolve limite e tira da fatura; desfazer estorno o contrário
+    acc.limitAvailable = round2(Math.max(0, Math.min(num(acc.limitTotal), num(acc.limitAvailable) + back * amount)));
     const debt = state.obligations.find((o) => o.type === 'card_debt' && o.accountId === acc.id && o.status !== 'paid');
     if (debt) {
       const d = clone(debt);
-      d.balance = round2(Math.max(0, num(d.balance) - amount));
-      d.principalAmount = round2(Math.max(0, num(d.principalAmount) - amount));
+      d.balance = round2(Math.max(0, num(d.balance) - back * amount));
+      d.principalAmount = round2(Math.max(0, num(d.principalAmount) - back * amount));
       d.totalAmount = d.balance;
       changes.obligations.push(d);
     }
