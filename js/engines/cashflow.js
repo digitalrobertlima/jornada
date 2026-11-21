@@ -114,6 +114,28 @@ function upsert(list, rec) {
   return rec;
 }
 
+/** Vencimento da próxima fatura do cartão para uma compra feita em `date` (depois do fechamento cai na seguinte). */
+export function invoiceDue(acc, date) {
+  if (!acc?.dueDay) return addMonths(date, 1);
+  const ref = acc.closingDay && Number(date.slice(8, 10)) > acc.closingDay ? addMonths(date, 1, 1) : date;
+  return nextDayOfMonth(acc.dueDay, ref);
+}
+
+/** Cartões aceitam parcelamento, a menos que a pessoa marque que aquele não parcela. */
+export const cardInstallments = (acc, wanted) => (['credit_card', 'collateralized_yield_crypto'].includes(acc?.type) && !acc.noInstallments ? Math.max(1, Math.round(num(wanted, 1)) || 1) : 1);
+
+/** Compra parcelada no cartão: vira uma dívida própria com N parcelas (a fatura se divide em N partes). */
+function installmentDebt(acc, entry, n) {
+  const amount = num(entry.amount);
+  return {
+    id: uid('obl'), profileId: entry.profileId, type: 'card_debt', bucket: 'pessoal', zone: null,
+    beneficiary: `${entry.note || entry.category} · ${acc.name} (${n}x)`, accountId: acc.id, sourceEntryId: entry.id,
+    principalAmount: amount, totalAmount: amount, balance: amount,
+    installmentAmount: round2(amount / n), installmentsLeft: n, installmentsTotal: n,
+    monthlyInterestPercent: 0, status: 'open', rules: {}, dueDate: invoiceDue(acc, entry.date), createdAt: entry.date,
+  };
+}
+
 /** Aplica o efeito de um lançamento já postado sobre contas/obrigações. */
 function applyEffects(state, entry, changes, { btcPrice } = {}) {
   const accRef = state.accounts.find((a) => a.id === entry.accountId);
@@ -130,9 +152,12 @@ function applyEffects(state, entry, changes, { btcPrice } = {}) {
     case 'credit_card': {
       // compra (out) gasta limite e aumenta a fatura; estorno (in) devolve limite e abate a fatura
       acc.limitAvailable = round2(Math.max(0, Math.min(num(acc.limitTotal), num(acc.limitAvailable) + sign * amount)));
-      const isDebt = (o) => o.type === 'card_debt' && o.accountId === acc.id && o.status !== 'paid';
+      const n = cardInstallments(acc, entry.installments);
+      const isDebt = (o) => o.type === 'card_debt' && o.accountId === acc.id && o.status !== 'paid' && !o.installmentAmount;
       const existing = changes.obligations.find(isDebt) || state.obligations.find(isDebt);
-      if (entry.direction === 'out') {
+      if (entry.direction === 'out' && n > 1) {
+        upsert(changes.obligations, installmentDebt(acc, entry, n));
+      } else if (entry.direction === 'out') {
         const debt = existing
           ? clone(changes.obligations.find((o) => o.id === existing.id) || existing)
           : {
@@ -140,11 +165,7 @@ function applyEffects(state, entry, changes, { btcPrice } = {}) {
             beneficiary: `Fatura ${acc.name}`, accountId: acc.id, principalAmount: 0, totalAmount: 0, balance: 0,
             monthlyInterestPercent: 0, status: 'open', rules: {}, createdAt: entry.date,
           };
-        // fatura nova: vence no próximo dia de vencimento do cartão (uma compra depois do fechamento cai na fatura seguinte)
-        if (!debt.dueDate && acc.dueDay) {
-          const ref = acc.closingDay && Number(entry.date.slice(8, 10)) > acc.closingDay ? addMonths(entry.date, 1, 1) : entry.date;
-          debt.dueDate = nextDayOfMonth(acc.dueDay, ref);
-        }
+        if (!debt.dueDate && acc.dueDay) debt.dueDate = invoiceDue(acc, entry.date);
         debt.balance = round2(num(debt.balance) + amount);
         debt.principalAmount = round2(num(debt.principalAmount) + amount);
         debt.totalAmount = debt.balance;
@@ -162,8 +183,11 @@ function applyEffects(state, entry, changes, { btcPrice } = {}) {
       if (entry.direction === 'in') {
         acc.collateralTotal = round2(num(acc.collateralTotal) + amount);
       } else {
-        if (num(entry.installments) > 1) acc.lockedInstallments = round2(num(acc.lockedInstallments) + amount);
-        else acc.collateralTotal = round2(num(acc.collateralTotal) - amount);
+        const n = cardInstallments(acc, entry.installments);
+        if (n > 1) {
+          acc.lockedInstallments = round2(num(acc.lockedInstallments) + amount);
+          upsert(changes.obligations, installmentDebt(acc, entry, n));
+        } else acc.collateralTotal = round2(num(acc.collateralTotal) - amount);
         const cb = amount * num(acc.yieldConfig?.cashbackPercent) / 100;
         acc.cashbackBRLTotal = round2(num(acc.cashbackBRLTotal) + cb);
         acc.cashbackPendingBRL = num(acc.cashbackPendingBRL) + cb;
@@ -196,8 +220,9 @@ export function addLedgerEntry(state, input, { today, btcPrice } = {}) {
     impactCashToday: acc ? isRealLiquidity(acc) : false,
     category: input.category || (input.direction === 'in' ? 'entrada' : 'gasto'),
     note: input.note || '',
-    installments: num(input.installments, 1) || 1,
+    installments: cardInstallments(acc, input.installments),
     obligationId: input.obligationId || null,
+    ...(input.fee ? { fee: input.fee, feeKind: input.feeKind, feeNote: input.feeNote } : {}),
     status: (input.date || today) > today ? 'scheduled' : 'posted',
     createdAt: new Date().toISOString(),
   };
@@ -233,19 +258,29 @@ export function removeLedgerEntry(state, entryId) {
     acc.balance = round2(num(acc.balance) - sign * amount);
   } else if (acc.type === 'credit_card') {
     const back = e.direction === 'out' ? 1 : -1; // desfazer compra devolve limite e tira da fatura; desfazer estorno o contrário
-    acc.limitAvailable = round2(Math.max(0, Math.min(num(acc.limitTotal), num(acc.limitAvailable) + back * amount)));
-    const debt = state.obligations.find((o) => o.type === 'card_debt' && o.accountId === acc.id && o.status !== 'paid');
-    if (debt) {
-      const d = clone(debt);
-      d.balance = round2(Math.max(0, num(d.balance) - back * amount));
-      d.principalAmount = round2(Math.max(0, num(d.principalAmount) - back * amount));
-      d.totalAmount = d.balance;
-      changes.obligations.push(d);
+    const inst = e.direction === 'out' ? state.obligations.find((o) => o.sourceEntryId === e.id) : null;
+    if (inst) {
+      // compra parcelada: devolve só o que ainda não foi pago (o resto do limite já voltou parcela a parcela)
+      acc.limitAvailable = round2(Math.min(num(acc.limitTotal), num(acc.limitAvailable) + num(inst.balance)));
+      changes.removeObligations.push(inst.id);
+    } else {
+      acc.limitAvailable = round2(Math.max(0, Math.min(num(acc.limitTotal), num(acc.limitAvailable) + back * amount)));
+      const debt = state.obligations.find((o) => o.type === 'card_debt' && o.accountId === acc.id && o.status !== 'paid' && !o.installmentAmount);
+      if (debt) {
+        const d = clone(debt);
+        d.balance = round2(Math.max(0, num(d.balance) - back * amount));
+        d.principalAmount = round2(Math.max(0, num(d.principalAmount) - back * amount));
+        d.totalAmount = d.balance;
+        changes.obligations.push(d);
+      }
     }
   } else if (acc.type === 'collateralized_yield_crypto') {
     if (e.direction === 'in') acc.collateralTotal = round2(num(acc.collateralTotal) - amount);
-    else if (num(e.installments) > 1) acc.lockedInstallments = round2(Math.max(0, num(acc.lockedInstallments) - amount));
-    else acc.collateralTotal = round2(num(acc.collateralTotal) + amount);
+    else if (num(e.installments) > 1) {
+      const inst = state.obligations.find((o) => o.sourceEntryId === e.id);
+      acc.lockedInstallments = round2(Math.max(0, num(acc.lockedInstallments) - (inst ? num(inst.balance) : amount)));
+      if (inst) changes.removeObligations.push(inst.id);
+    } else acc.collateralTotal = round2(num(acc.collateralTotal) + amount);
     acc.limitAvailable = round2(num(acc.collateralTotal) - num(acc.lockedInstallments));
   }
   changes.accounts.push(acc);
@@ -265,6 +300,7 @@ export function payObligation(state, p, { today, btcPrice } = {}) {
   const ob = clone(original);
   const date = p.date || today;
   const paid = round2(Math.abs(num(p.amount)));
+  const fee = round2(Math.max(0, num(p.fee))); // pago a mais (juros, multa, taxa): não abate a dívida
   const open = openFor(ob, p.profileId, members);
   const settle = Boolean(p.settle);
   const reduction = settle ? open : round2(Math.min(open, paid));
@@ -296,11 +332,20 @@ export function payObligation(state, p, { today, btcPrice } = {}) {
     }
   }
 
+  if (fee > 0) {
+    ob.feesPaid = round2(num(ob.feesPaid) + fee);
+    ob.feeLog = [...(ob.feeLog || []), { id: uid('fee'), date, amount: fee, base: paid, kind: p.feeKind || 'outro', note: String(p.feeNote || '').slice(0, 120) }];
+  }
+
   if (ob.type === 'card_debt' && ob.accountId) {
     const accRef = state.accounts.find((a) => a.id === ob.accountId);
     if (accRef) {
       const acc = clone(accRef);
-      if (acc.limitShrinking) {
+      if (acc.type === 'collateralized_yield_crypto') {
+        // cada parcela paga libera a garantia que estava travada
+        acc.lockedInstallments = round2(Math.max(0, num(acc.lockedInstallments) - reduction));
+        acc.limitAvailable = round2(num(acc.collateralTotal) - num(acc.lockedInstallments));
+      } else if (acc.limitShrinking) {
         // o banco corta o limite na mesma proporção do pagamento: limite não volta
         acc.limitTotal = round2(Math.max(num(acc.limitAvailable), num(acc.limitTotal) - reduction));
         acc.limitHistory = [...(acc.limitHistory || []), { date, limitTotal: acc.limitTotal }];
@@ -324,6 +369,7 @@ export function payObligation(state, p, { today, btcPrice } = {}) {
       next.balance = num(original.totalAmount) || num(original.principalAmount);
       next.principalAmount = next.balance;
       next.paidShares = {};
+      next.feesPaid = ob.feesPaid; next.feeLog = ob.feeLog; // juros pagos seguem somando de um mês para o outro
       next.status = 'open';
       next.protestRescued = false;
       if (next.rules?.protestDeadline) next.rules = { ...next.rules, protestDeadline: addMonths(original.rules.protestDeadline, 1) };
@@ -339,10 +385,10 @@ export function payObligation(state, p, { today, btcPrice } = {}) {
   else if (advanced) ob.protestRescued = false;
   upsert(changes.obligations, ob);
 
-  if (p.accountId && paid > 0) {
+  if (p.accountId && paid + fee > 0) {
     const { changes: c2 } = addLedgerEntry(
       { ...state, accounts: state.accounts.map((a) => changes.accounts.find((x) => x.id === a.id) || a) },
-      { profileId: p.profileId, direction: 'out', amount: paid, accountId: p.accountId, date, category: 'pagamento', note: original.beneficiary, obligationId: original.id },
+      { profileId: p.profileId, direction: 'out', amount: round2(paid + fee), accountId: p.accountId, date, category: 'pagamento', note: original.beneficiary, obligationId: original.id, fee: fee || undefined, feeKind: fee ? (p.feeKind || 'outro') : undefined, feeNote: fee ? p.feeNote || '' : undefined },
       { today, btcPrice },
     );
     changes.ledger.push(...c2.ledger);

@@ -5,7 +5,7 @@ import {
   esc, openSheet, toast, formData, bindSegments, copyText, confirmSheet, haptic, celebrate,
 } from './dom.js';
 import { icon } from './icons.js';
-import { brl, lifeTime, parseMoney, dateHuman } from '../core/format.js';
+import { brl, lifeTime, parseMoney, dateHuman, dateShort } from '../core/format.js';
 import { addDays, isISODate } from '../core/dates.js';
 import { uid, num, round2 } from '../core/util.js';
 import {
@@ -13,7 +13,7 @@ import {
 } from '../core/model.js';
 import { installmentBar } from './deck3d.js';
 import { parseBoleto } from '../parsers/boletoParser.js';
-import { payObligation, addLedgerEntry, removeLedgerEntry } from '../engines/cashflow.js';
+import { payObligation, addLedgerEntry, removeLedgerEntry, invoiceDue } from '../engines/cashflow.js';
 import { buildItem, memberIds } from '../engines/triage.js';
 import { negotiationScript } from '../engines/scripts.js';
 import { describeAction } from '../engines/journal.js';
@@ -485,7 +485,7 @@ async function buildObligationChanges(kind, v, ex) {
       const acc = normalizeAccount({
         ...(accEx || { id: uid('acc'), profileId: pid }), name: v.name.trim(), type: 'credit_card',
         limitTotal: parseMoney(v.limitTotal), limitAvailable: v.limitAvailable === '' ? parseMoney(v.limitTotal) - balance : parseMoney(v.limitAvailable),
-        closingDay: num(v.closingDay) || null, dueDay: num(v.dueDay) || null, limitShrinking: Boolean(v.limitShrinking),
+        closingDay: num(v.closingDay) || null, dueDay: num(v.dueDay) || null, limitShrinking: Boolean(v.limitShrinking), noInstallments: Boolean(v.noInstallments),
       });
       accountId = acc.id;
       changes.accounts.push(acc);
@@ -569,7 +569,9 @@ export function openObligationDetail(id) {
     ob.receivedAmount && num(ob.loanTotal) > num(ob.receivedAmount) ? ['Custo do empréstimo', `<span class="c-magenta">${brl(num(ob.loanTotal) - num(ob.receivedAmount))} · ${lifeTime(((num(ob.loanTotal) - num(ob.receivedAmount)) / Math.max(0.01, rate)) * 60)} de vida</span>`] : null,
     item.installment ? ['Parcelas', `${item.installment.total ? `${item.installment.paid} de ${item.installment.total} pagas · ` : ''}faltam ${item.installment.left ?? '?'}x de ${brl(item.installment.amount)}`] : null,
     ob.isShared ? ['Sua cota', brl(item.open)] : null,
+    num(ob.feesPaid) > 0 ? ['Juros e taxas já pagos', `<span class="c-magenta">${brl(ob.feesPaid)}</span>`] : null,
   ].filter(Boolean);
+  const feeLines = (ob.feeLog || []).slice(-6).map((f) => `<div class="tiny c-ink3">${dateShort(f.date)} · ${esc((FEE_KINDS.find((k) => k[0] === f.kind) || [])[1] || 'Custo extra')} ${brl(f.amount)}${f.base > 0 ? ` (${((f.amount / f.base) * 100).toFixed(1).replace('.', ',')}%)` : ''}${f.note ? ` · ${esc(f.note)}` : ''}</div>`).join('');
 
   openSheet({
     title: ob.beneficiary,
@@ -579,7 +581,7 @@ export function openObligationDetail(id) {
         ${item.late > 0 ? `<span class="pill magenta">${icon('alert')}Atrasada há ${item.late} dia${item.late > 1 ? 's' : ''}</span>` : ''}</div>
       ${item.late > 0 && item.riskParts.accrued > 0 ? `<div class="alert">${icon('alert')}<div>O atraso já somou <b>${brl(item.riskParts.accrued)}</b> em multa e juros — e continua crescendo todo dia.</div></div>` : ''}
       <div class="card tight">${rows.map(([k, v]) => `<div class="row between small" style="padding:5px 0"><span class="c-ink2">${k}</span><span class="num">${v}</span></div>`).join('')}
-        ${item.installment ? installmentBar(item.installment) : ''}</div>
+        ${item.installment ? installmentBar(item.installment) : ''}${feeLines}</div>
       ${item.alerts.map((a) => `<div class="alert">${icon('alert')}<div>${esc(a.text)}</div></div>`).join('')}
       ${ob.barcode ? `<button class="btn sm ghost" data-copy="${esc(ob.barcode)}" type="button">${icon('copy')}Copiar linha digitável</button>` : ''}
       <div class="grid-2">
@@ -625,6 +627,8 @@ export function openObligationDetail(id) {
 
 // ------------------------------------------------------------ Pagamento
 
+export const FEE_KINDS = [['juros', 'Juros de atraso'], ['multa', 'Multa'], ['taxa', 'Taxa / tarifa'], ['iof', 'IOF'], ['encargos', 'Encargos do parcelamento'], ['outro', 'Outro']];
+
 export function openPaySheet(id, { protest = false, settle = false } = {}) {
   const item = itemFor(id);
   if (!item) return;
@@ -641,6 +645,13 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
         <button type="button" class="btn sm" data-fill="${item.dueNow}">1 parcela · ${brl(item.dueNow)}</button>
         ${(item.installment.left ?? 0) > 1 ? `<button type="button" class="btn sm ghost" data-fill="${item.updated}">Quitar tudo · ${brl(item.updated)}</button>` : ''}
       </div>` : ''}
+      ${settle ? '' : moneyField('exact', 'Valor exato que saiu da sua conta', '', { hint: 'Preencha só se foi diferente do valor acima (ex.: veio com juros, multa ou taxa).' })}
+      <div id="fee-box" class="card tight stack" hidden>
+        <div class="small" id="fee-text"></div>
+        <label class="field"><span>Por que foi mais?</span><select class="input" name="feeKind">
+          ${FEE_KINDS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+        ${textField('feeNote', 'Observação (opcional)', '', { placeholder: 'Ex.: 5 dias de atraso, tarifa do boleto' })}
+      </div>
       ${accounts.length ? accountSelect('accountId', accounts, accounts[0]?.id, { includeOutside: true, label: 'Saiu de qual conta' }) : '<input type="hidden" name="accountId" value="">'}
       ${dateField('date', 'Data do pagamento', store.today)}
       ${item.zone !== 'frontline' || settle ? checkField('settle', 'Paguei com desconto e quitei tudo', settle, 'Desconto por antecipação ou acordo: o que você deixou de pagar vira horas de vida.') : ''}
@@ -654,11 +665,21 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
         form.amount.value = String(round2(Number(b.dataset.fill))).replace('.', ',');
         form.amount.dispatchEvent(new Event('input', { bubbles: true }));
       }));
+      const feeOf = (v, amount) => {
+        const exact = parseMoney(v.exact);
+        return !v.settle && exact > amount + 0.004 ? round2(exact - amount) : 0;
+      };
       const preview = () => {
         const v = formData(form);
         const amount = parseMoney(v.amount);
+        const fee = feeOf(v, amount);
+        el.querySelector('#fee-box').hidden = !fee;
+        if (fee) {
+          const pct = amount > 0 ? (fee / amount) * 100 : 0;
+          el.querySelector('#fee-text').innerHTML = `Você pagou <b class="c-magenta">${brl(fee)} a mais</b> (${pct.toFixed(1).replace('.', ',')}% do valor da conta). Isso não abate a dívida: foi custo. Por quê?`;
+        }
         try {
-          const { rescue, fullForProfile } = payObligation(store.state, { obligationId: id, profileId: pid, amount, accountId: v.accountId || null, date: v.date || store.today, settle: Boolean(v.settle) }, { today: store.today, btcPrice: store.btcPrice() });
+          const { rescue, fullForProfile } = payObligation(store.state, { obligationId: id, profileId: pid, amount, fee, feeKind: v.feeKind, feeNote: v.feeNote, accountId: v.accountId || null, date: v.date || store.today, settle: Boolean(v.settle) }, { today: store.today, btcPrice: store.btcPrice() });
           const nextInst = item.installment && !fullForProfile && amount >= item.installment.amount - 0.01;
           prev.innerHTML = `<div class="row between"><span class="small">${fullForProfile ? 'Quita esta conta' : nextInst ? `Parcela paga · restam ${brl(Math.max(0, item.open - amount))}` : `Restam ${brl(Math.max(0, item.open - amount))}`}</span>
             <span class="num c-cyan"><b>+${lifeTime(rescue.minutes)}</b> de vida</span></div>
@@ -673,15 +694,16 @@ export function openPaySheet(id, { protest = false, settle = false } = {}) {
         const v = formData(form);
         const amount = parseMoney(v.amount);
         if (amount <= 0) { toast('Informe o valor pago.', { tone: 'magenta' }); return; }
+        const fee = feeOf(v, amount);
         const acc = accounts.find((a) => a.id === v.accountId);
-        if (acc && acc.balance < amount) {
+        if (acc && acc.balance < amount + fee) {
           const ok = await confirmSheet({ title: 'Saldo insuficiente', text: `${esc(acc.name)} tem ${brl(acc.balance)}. Registrar mesmo assim (a conta fica negativa)?`, confirmLabel: 'Registrar' });
           if (!ok) return;
         }
         const { changes, rescue, fullyPaid } = payObligation(store.state, {
-          obligationId: id, profileId: pid, amount, accountId: v.accountId || null, date: v.date || store.today, settle: Boolean(v.settle),
+          obligationId: id, profileId: pid, amount, fee, feeKind: v.feeKind, feeNote: (v.feeNote || '').trim(), accountId: v.accountId || null, date: v.date || store.today, settle: Boolean(v.settle),
         }, { today: store.today, btcPrice: store.btcPrice() });
-        await store.commit(changes, { label: `Pagamento: ${item.ob.beneficiary} (${brl(amount)})` });
+        await store.commit(changes, { label: `Pagamento: ${item.ob.beneficiary} (${brl(amount + fee)}${fee ? `, com ${brl(fee)} de ${(FEE_KINDS.find((k) => k[0] === v.feeKind) || [])[1] || 'custo extra'}` : ''})` });
         close();
         haptic([18, 40, 18, 40, 60]);
         const inst = item.installment;
@@ -748,7 +770,7 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
       <label class="field"><span>Categoria</span><select class="input" name="category"></select></label>
       ${textField('note', 'Descrição (opcional)', '', { placeholder: 'Ex.: mercado, uber, bico' })}
       ${dateField('date', 'Data', store.today, { hint: 'Data futura = agendado (entra na Onda de Liquidez).' })}
-      <div id="inst-box" hidden>${numField('installments', 'Parcelas (cartão com garantia)', 1, { step: 1, hint: 'Parcelado trava parte da garantia até quitar.' })}</div>
+      <div id="inst-box" hidden>${numField('installments', 'Parcelas (1 = à vista)', 1, { step: 1 })}<div class="tiny" id="inst-hint"></div></div>
       <button class="btn primary block" type="submit">Lançar</button>
     </form>`,
     onMount(el, close) {
@@ -766,13 +788,20 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
         const hint = {
           checking_cash: 'Mexe no caixa real de hoje.',
           benefit_card: 'Saldo restrito: não mexe no caixa real.',
-          credit_card: v.direction === 'out' ? 'Compra no crédito: não mexe no caixa hoje, mas aumenta a dívida do cartão.' : 'Estorno no cartão.',
+          credit_card: v.direction === 'out' ? 'Compra no crédito: usa limite, não mexe no caixa hoje e aumenta a fatura.' : 'Estorno no cartão: devolve limite e abate a fatura.',
           savings_pot: 'Mexe só no cofrinho (não é caixa livre).',
           collateralized_yield_crypto: v.direction === 'out' ? 'Gasto no cartão com garantia: gera cashback em sats.' : 'Depósito na garantia (rende CDI em BTC).',
         }[acc?.type] || '';
         el.querySelector('#acc-hint').textContent = hint;
-        el.querySelector('#inst-box').hidden = !(acc?.type === 'collateralized_yield_crypto' && v.direction === 'out');
+        const canInst = ['credit_card', 'collateralized_yield_crypto'].includes(acc?.type) && !acc?.noInstallments && v.direction === 'out';
+        el.querySelector('#inst-box').hidden = !canInst;
+        const n = Math.max(1, Math.round(num(v.installments, 1)) || 1);
+        const amt = parseMoney(v.amount);
+        el.querySelector('#inst-hint').textContent = canInst && n > 1 && amt > 0
+          ? `${n}x de ${brl(round2(amt / n))}. Usa ${brl(amt)} do limite agora e a fatura se divide em ${n} partes (a 1ª vence ${dateHuman(invoiceDue(acc, v.date || store.today))}). Cada parcela paga devolve limite.`
+          : acc?.type === 'collateralized_yield_crypto' ? 'Parcelado trava garantia até pagar cada parcela.' : '';
       };
+      form.addEventListener('input', sync);
       form.addEventListener('change', (ev) => {
         if (ev.target.name === 'liq') {
           const want = ev.target.value === 'locked' ? 'benefit_card' : 'checking_cash';
@@ -853,11 +882,13 @@ export function openAccountWizard(existingId = null) {
         <div class="grid-2">${moneyField('limitTotal', 'Limite total', ex?.limitTotal ?? '')}${moneyField('limitAvailable', 'Disponível', ex?.limitAvailable ?? '')}</div>
         <div class="grid-2">${numField('closingDay', 'Fechamento (dia)', ex?.closingDay ?? '', { step: 1 })}${numField('dueDay', 'Vencimento (dia)', ex?.dueDay ?? '', { step: 1 })}</div>
         ${checkField('limitShrinking', 'O banco está cortando meu limite', ex?.limitShrinking)}
+        ${checkField('noInstallments', 'Este cartão NÃO faz parcelamento', ex?.noInstallments, 'Por padrão todo cartão parcela. Marque só se o seu não aceita compra parcelada.')}
         <p class="tiny">A dívida do cartão entra pelo botão "+ Cartão" no Campo de Batalha.</p>
       </div>
       <div data-t="collateralized_yield_crypto" class="stack">
         <div class="grid-2">${moneyField('collateralTotal', 'Garantia total depositada', ex?.collateralTotal ?? '')}${moneyField('lockedInstallments', 'Travado em parcelas', ex?.lockedInstallments ?? '')}</div>
         <div class="grid-2">${numField('cdiPercent', '% do CDI', ex?.yieldConfig?.cdiPercent ?? 100)}${numField('cashbackPercent', 'Cashback (%)', ex?.yieldConfig?.cashbackPercent ?? 0.5)}</div>
+        ${checkField('noInstallments', 'Este cartão NÃO faz parcelamento', ex?.noInstallments)}
         <p class="tiny">Modelo Bipa: a garantia rende CDI pago em BTC e o limite livre é garantia − parcelas travadas. Nada disso conta como dinheiro para o aluguel.</p>
       </div>
       <button class="btn primary block" type="submit">Salvar</button>

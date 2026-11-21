@@ -50,7 +50,7 @@ export function evaluateEras(ctx) {
   const bfOpen = round2(tri.battlefield.reduce((s, i) => s + i.updated, 0));
   const bfBase = Math.max(num(ctx.baselines?.battlefield), bfOpen);
   const quickWins = tri.battlefield.filter((i) => i.quickWin).length;
-  const cards = tri.battlefield.filter((i) => i.ob.type === 'card_debt').length;
+  const cards = new Set(tri.battlefield.filter((i) => i.ob.type === 'card_debt').map((i) => i.ob.accountId || i.id)).size;
   const era2Checks = [
     { label: 'Dívidas com pessoas quitadas', ok: quickWins === 0, detail: quickWins ? `${quickWins} restante(s)` : '' },
     { label: 'Cartões ativos quitados', ok: cards === 0, detail: cards ? `${cards} restante(s)` : '' },

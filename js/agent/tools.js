@@ -330,6 +330,7 @@ ${hip}` };
 
   def('pagar', 'write', 'Registra o pagamento de uma conta ou dívida cadastrada (parcela, parte ou tudo).', {
     conta: 'nome da conta/dívida', valor: 'opcional: padrão é o que vence agora', de_onde: 'conta de onde saiu (opcional)', quitar_com_desconto: 'sim se pagou menos e quitou tudo (opcional)',
+    valor_exato: 'quanto realmente saiu da conta, se foi mais que o valor da conta (opcional)', motivo: 'juros | multa | taxa | iof | outro (opcional)',
   }, (a = {}) => {
     const { d, state, today, pid } = ctx();
     if (!a.conta) throw new Error('Qual conta você pagou?');
@@ -342,14 +343,18 @@ ${hip}` };
     }
     const liquid = liquidAccounts(state, pid);
     const acc = a.de_onde ? resolve(String(a.de_onde), liquid, (x) => x.name, 'conta') : liquid[0] || null;
-    const res = payObligation(state, { obligationId: item.id, profileId: pid, amount: valor, accountId: acc?.id || null, date: today, settle }, { today, btcPrice: api.btcPrice() });
+    const exato = money(a.valor_exato);
+    const fee = !settle && exato > valor + 0.004 ? round2(exato - valor) : 0;
+    const feeKind = ['juros', 'multa', 'taxa', 'iof', 'encargos'].find((k) => norm(a.motivo).includes(k)) || 'outro';
+    const res = payObligation(state, { obligationId: item.id, profileId: pid, amount: valor, fee, feeKind, feeNote: fee ? String(a.motivo || '') : '', accountId: acc?.id || null, date: today, settle }, { today, btcPrice: api.btcPrice() });
     const lines = [
+      fee ? `Saiu ${brl(exato)}: ${brl(valor)} da conta + ${brl(fee)} de ${feeKind === 'outro' ? 'custo extra' : feeKind} (não abate a dívida)` : null,
       `${item.ob.beneficiary}: ${brl(valor)}${item.installment && !settle ? ` (${item.installment.label})` : ''}${res.fullyPaid ? ' — quita esta conta' : ''}`,
-      acc ? `Sai de ${acc.name}: ${brl(acc.balance)} → ${brl(acc.balance - valor)}` : 'Pago por fora (não mexe nos saldos)',
+      acc ? `Sai de ${acc.name}: ${brl(acc.balance)} → ${brl(acc.balance - valor - fee)}` : 'Pago por fora (não mexe nos saldos)',
       res.rescue.minutes > 0 ? `Evita multa/juros: +${lifeTime(res.rescue.minutes)} de vida` : null,
     ].filter(Boolean);
     let warn = null;
-    if (acc && acc.balance < valor) warn = `${acc.name} só tem ${brl(acc.balance)}.`;
+    if (acc && acc.balance < valor + fee) warn = `${acc.name} só tem ${brl(acc.balance)}.`;
     else if (!item.isVital && !item.isProtestable && d.cash - valor < d.wl.floor) {
       warn = `Cuidado: depois disso faltam ${brl(d.wl.floor - (d.cash - valor))} para as contas essenciais (aluguel, luz, comida). Só pague se essa dívida não puder esperar.`;
     }

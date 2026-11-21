@@ -101,6 +101,7 @@ export function normalizeAccount(a) {
       out.limitTotal = round2(a.limitTotal);
       out.limitAvailable = round2(a.limitAvailable ?? a.availableLimit ?? a.limitTotal);
       out.limitShrinking = Boolean(a.limitShrinking);
+      out.noInstallments = Boolean(a.noInstallments);
       out.closingDay = num(a.closingDay) || null;
       out.dueDay = num(a.dueDay) || null;
       out.limitHistory = Array.isArray(a.limitHistory) ? a.limitHistory : [];
@@ -116,6 +117,7 @@ export function normalizeAccount(a) {
         cashbackPercent: num(a.yieldConfig?.cashbackPercent, 0.5),
         payoutAsset: a.yieldConfig?.payoutAsset || 'BTC',
       };
+      out.noInstallments = Boolean(a.noInstallments);
       out.satsFromYield = Math.floor(num(a.satsFromYield));
       out.satsFromCashback = Math.floor(num(a.satsFromCashback));
       out.yieldPendingBRL = num(a.yieldPendingBRL);

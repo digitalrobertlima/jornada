@@ -92,3 +92,6 @@ Testes: `npm test` (unidade, sem navegador). O caminho da IA é testado com um m
 
 ## v2.4 — Mover saldo
 Botão **⇄ Mover saldo** (aba Dinheiro e verso de cada cartão) passa dinheiro entre Pix, cofrinhos (novo tipo, rende % do CDI) e o limite do cartão com garantia (Bipa). Não é gasto nem entrada, e tem "Desfazer". O assistente entende: "passa 200 da bipa pro cofrinho", "tira 100 do cofrinho".
+
+## v2.5 — Parcelamento em todos os cartões e custo extra nos pagamentos
+Compra parcelada em qualquer cartão (comum ou com garantia, exceto se marcado "este cartão não faz parcelamento") vira uma dívida própria em N parcelas; pagar cada parcela devolve limite/libera garantia. No pagamento, "valor exato que saiu da conta" registra juros/multa/taxa pagos a mais (com motivo), somando mês a mês.
