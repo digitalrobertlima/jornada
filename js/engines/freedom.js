@@ -7,6 +7,7 @@ import { num, round2 } from '../core/util.js';
 import { memberIds, shareAmount } from './triage.js';
 import { pendingForecasts } from './forecast.js';
 import { realLiquidity } from './cashflow.js';
+import { isRealLiquidity } from '../core/model.js';
 
 const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 export const monthLabel = (iso) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} de ${iso.slice(0, 4)}`;
@@ -48,12 +49,27 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
   else if (hasMonthly) assumptions.push('as entradas marcadas como "todo mês" continuam caindo');
   else assumptions.push('só entram as entradas previstas (cadastre o salário como "todo mês" para uma projeção melhor)');
 
-  // essenciais: o que é mensal se repete; o que vence ainda este mês entra no mês atual
+  // essenciais: cada conta entra NO MÊS EM QUE VENCE (a mensal se repete daí em diante).
+  // Antes, tudo o que estava em aberto caía no mês atual — mesmo o aluguel que só vence no mês que vem.
   const vital = [...tri.frontline, ...tri.battlefield].filter((i) => i.isVital);
   const monthlyShare = (i) => (i.ob.isShared ? shareAmount(i.ob, pid, members) : num(i.ob.totalAmount) || i.open);
   const monthlyEssentials = round2(vital.filter((i) => i.ob.recurrence === 'monthly').reduce((s, i) => s + monthlyShare(i), 0));
-  const foodTransport = round2(vital.filter((i) => i.ob.recurrence === 'monthly' && ['alimentacao', 'transporte'].includes(i.ob.vitalKind)).reduce((s, i) => s + monthlyShare(i), 0));
-  const essentialsNow = round2(vital.reduce((s, i) => s + i.dueNow, 0));
+  const monthIdx = (iso) => (Number(iso.slice(0, 4)) - Number(today.slice(0, 4))) * 12 + Number(iso.slice(5, 7)) - Number(today.slice(5, 7));
+  const ess = vital.map((i) => ({
+    id: i.id, name: i.ob.beneficiary, first: i.ob.dueDate ? Math.max(0, monthIdx(i.ob.dueDate)) : 0,
+    monthly: i.ob.recurrence === 'monthly', now: round2(i.dueNow), each: round2(monthlyShare(i)),
+    foodTransport: ['alimentacao', 'transporte'].includes(i.ob.vitalKind), dueDate: i.ob.dueDate || today,
+    paid: [], missed: [],
+  })).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const essDue = (e, m) => (m === e.first ? e.now : e.monthly && m > e.first ? e.each : 0);
+  const foodTransportIn = (m) => round2(ess.filter((e) => e.foodTransport).reduce((s, e) => s + essDue(e, m), 0));
+
+  // lançamentos agendados (não previsões) em conta Pix também contam: ex. um vale pago em conta no dia 7
+  const liquidIds = new Set(state.accounts.filter((a) => a.profileId === pid && isRealLiquidity(a)).map((a) => a.id));
+  const sched = state.ledger.filter((e) => e.profileId === pid && e.status === 'scheduled' && !e.forecast && !e.obligationId && liquidIds.has(e.accountId));
+  const schedIn = (m) => round2(sched.filter((e) => e.direction === 'in' && Math.max(0, monthIdx(e.date)) === m).reduce((s, e) => s + num(e.amount), 0));
+  const schedOut = (m) => round2(sched.filter((e) => e.direction === 'out' && Math.max(0, monthIdx(e.date)) === m).reduce((s, e) => s + num(e.amount), 0));
+  if (sched.some((e) => e.direction === 'in')) assumptions.push('os lançamentos agendados em conta Pix caem na data marcada');
 
   // dívidas na ordem da fila (urgentes primeiro, depois a ordem do app); quarentena por último
   const queue = [...tri.frontline, ...tri.battlefield].filter((i) => !i.isVital);
@@ -79,8 +95,21 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
     const label = `${monthISO}-01`;
     if (m > 0) for (const d of debts) if (d.balance > 0.004 && d.rate > 0) d.balance = round2(d.balance * (1 + d.rate));
     const locked = incomeIn(monthISO, true);
-    const need = m === 0 ? essentialsNow : round2(monthlyEssentials - Math.min(locked, foodTransport));
-    let avail = round2(carry + incomeIn(monthISO, false) - need);
+    const income = round2(incomeIn(monthISO, false) + schedIn(m));
+    // o vale travado paga as essenciais de comida/transporte; o resto sai do Pix
+    let lockedLeft = Math.min(locked, foodTransportIn(m));
+    let avail = round2(carry + income - schedOut(m));
+    let need = 0;
+    for (const e of ess) {
+      let due = essDue(e, m);
+      if (!(due > 0)) continue;
+      if (e.foodTransport && lockedLeft > 0) { const v = Math.min(lockedLeft, due); lockedLeft -= v; due = round2(due - v); }
+      need = round2(need + due);
+      const pay = round2(Math.min(due, Math.max(0, avail)));
+      if (pay > 0) e.paid.push({ m, amount: pay });
+      if (due - pay > 0.004) e.missed.push({ m, amount: round2(due - pay) });
+      avail = round2(avail - due);
+    }
     // parcelas em dia
     for (const d of debts) {
       if (d.balance <= 0.004 || !d.inst || d.quarantine) continue;
@@ -89,7 +118,6 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
       avail = round2(avail - pay);
       if (pay > 0) d.paid.push({ m, amount: pay });
     }
-    const income = round2(incomeIn(monthISO, false));
     if (avail < 0) {
       worst = Math.min(worst, avail);
       carry = avail;
@@ -125,6 +153,7 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
   }
   const nextMonth = ym(addMonths(start, Math.max(1, (Number(lastOneOff.slice(0, 4)) - Number(today.slice(0, 4))) * 12 + Number(lastOneOff.slice(5, 7)) - Number(today.slice(5, 7)) + 1)));
   const monthlyIncome = round2(incomeIn(nextMonth, false));
+  const foodTransport = round2(ess.filter((e) => e.foodTransport && e.monthly).reduce((s, e) => s + e.each, 0));
   const monthlyFree = round2(monthlyIncome - (monthlyEssentials - Math.min(incomeIn(nextMonth, true), foodTransport)));
   const toDate = (n) => (n === null ? null : `${ym(addMonths(start, n))}-01`);
   return {
@@ -139,6 +168,7 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
     start,
     monthEnd,
     debts: debts.map((d) => ({ id: d.id, name: d.name, start: d.start, paid: d.paid, bal: d.bal, quarantine: d.quarantine, doneAt: d.doneAt })),
+    essentials: ess.map((e) => ({ id: e.id, name: e.name, first: e.first, monthly: e.monthly, dueDate: e.dueDate, paid: e.paid, missed: e.missed, each: e.each, now: e.now })),
   };
 }
 
@@ -156,6 +186,16 @@ export function atHorizon(proj, h) {
     const doneM = d.doneAt ? Math.round((Number(d.doneAt.slice(0, 4)) - Number(proj.start.slice(0, 4))) * 12 + Number(d.doneAt.slice(5, 7)) - Number(proj.start.slice(5, 7))) : null;
     per.set(d.id, { paid, left, done: doneM !== null && doneM <= last, doneAt: doneM !== null && doneM <= last ? d.doneAt : null, firstPay: d.paid.find((p) => p.m <= last) ? `${addMonths(proj.start, d.paid.find((p) => p.m <= last).m).slice(0, 7)}-01` : null });
   }
+  for (const e of proj.essentials || []) {
+    const paid = round2(e.paid.filter((p) => p.m <= last).reduce((a, p) => a + p.amount, 0));
+    const left = round2(e.missed.filter((p) => p.m <= last).reduce((a, p) => a + p.amount, 0));
+    const dueIn = e.first <= last;
+    per.set(e.id, {
+      essential: true, paid, left, dueIn, done: dueIn && left <= 0.004,
+      doneAt: dueIn && left <= 0.004 ? `${addMonths(proj.start, e.first).slice(0, 7)}-01` : null,
+      firstDue: `${addMonths(proj.start, e.first).slice(0, 7)}-01`, dueDate: e.dueDate,
+    });
+  }
   const months = proj.monthEnd.slice(0, last + 1);
   const income = round2(months.reduce((s, x) => s + x.income, 0));
   const essentials = round2(months.reduce((s, x) => s + x.essentials, 0));
@@ -164,6 +204,7 @@ export function atHorizon(proj, h) {
   return {
     last, endDate: `${addMonths(proj.start, last).slice(0, 7)}-01`, per,
     income, essentials, toDebts, missing,
+    essentialList: (proj.essentials || []).map((e) => ({ name: e.name, dueDate: e.dueDate, amount: round2([...Array(last + 1).keys()].reduce((a, m) => a + (m === e.first ? e.now : e.monthly && m > e.first ? e.each : 0), 0)) })).filter((x) => x.amount > 0.004),
     leftover: round2(end.carry + end.reserve), reserve: round2(end.reserve),
   };
 }

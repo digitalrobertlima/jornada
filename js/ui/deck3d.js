@@ -204,6 +204,7 @@ function simSceneHTML(item, sim, maxValue) {
   const inst = item.installment;
   const { hb } = totemHeights(towerValue(item), 0, maxValue);
   let html = '<div class="scene tower sim" aria-hidden="true">';
+  if (sim.later) return `${html}${prismHTML('later', hb, 0)}</div>`;
   if (inst?.total >= 2) {
     const blocks = Math.min(12, inst.total);
     const scale = blocks / inst.total;
@@ -246,7 +247,11 @@ export function moneyTowerHTML({ leftover, reserve, maxValue, until }) {
 
 export function renderTotem(item, { maxValue, order, isTarget, rate, sim = null }) {
   if (sim) {
-    const status = sim.done
+    const status = sim.later
+      ? `<div class="sim-txt">conta essencial · vence ${sim.dueDate ? `${sim.dueDate.slice(8, 10)}/${sim.dueDate.slice(5, 7)}` : 'depois'}, fora deste período</div>`
+      : sim.essential
+        ? (sim.done ? `<div class="sim-txt ok">✓ essencial paga com o previsto</div>` : `<div class="sim-txt miss">essencial · falta ${brlShort(sim.left)}</div>`)
+        : sim.done
       ? `<div class="sim-txt ok">✓ quitada em ${monthShort(sim.doneAt)}</div>`
       : sim.paid > 0.004
         ? `<div class="sim-txt part">${brlShort(sim.paid)} pagos até ${monthShort(sim.until)}</div><div class="sim-txt miss">falta ${brlShort(sim.left)}</div>`

@@ -690,3 +690,11 @@ details.more summary::-webkit-details-marker { display: none; }
 /* mover saldo */
 .move-swap { display: flex; justify-content: center; }
 .acard.t-savings_pot .front { background: radial-gradient(120% 100% at 100% 100%, rgba(255, 196, 61, 0.18), transparent 55%), linear-gradient(140deg, #2a2616, #12110b); border-color: rgba(255, 196, 61, 0.3); }
+
+.sim-line { padding: 3px 0; font-size: 14px; }
+.sim-line.total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; }
+.sim-line.total.neg b { color: var(--magenta, #ff007f); }
+.prism.later .f { background: rgba(160, 170, 190, 0.10); border: 1.5px dotted rgba(180, 190, 210, 0.5); }
+.prism.later .s { background: rgba(160, 170, 190, 0.06); border: 1px dotted rgba(180, 190, 210, 0.35); }
+.prism.later .t { background: rgba(160, 170, 190, 0.12); border: 1px dotted rgba(180, 190, 210, 0.4); }
+.prism.later .b { background: transparent; }

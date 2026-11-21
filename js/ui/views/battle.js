@@ -1,5 +1,6 @@
 // Campo de Batalha — cadastro rápido, Linha de Frente, totens da Bola de Neve e o Domo de Quarentena.
 
+import { round2 } from '../../core/util.js';
 import { esc } from '../dom.js';
 import { icon } from '../icons.js';
 import { brl, brlShort, dateShort } from '../../core/format.js';
@@ -50,6 +51,7 @@ export function renderBattle(d, state = null, sim = null) {
   const simFor = (i) => {
     if (!simData) return null;
     const x = simData.at.per.get(i.id) || { paid: 0, left: i.updated, done: false };
+    if (x.essential && !x.dueIn) return { ...x, until: simData.at.endDate, later: true, left: 0 };
     return { ...x, until: simData.at.endDate };
   };
   const totems = tri.battlefield.map((i, k) => renderTotem(i, { maxValue, order: k + 1, isTarget: tri.target?.id === i.id, rate, sim: simFor(i) })).join('')
@@ -62,11 +64,26 @@ export function renderBattle(d, state = null, sim = null) {
     const { at, proj } = simData;
     const queue = tri.battlefield.length;
     const doneN = tri.battlefield.filter((i) => at.per.get(i.id)?.done).length;
+    const debtsTower = tri.battlefield.filter((i) => !i.isVital);
+    const doneD = debtsTower.filter((i) => at.per.get(i.id)?.done).length;
+    const essTxt = at.essentialList.map((e) => `${esc(e.name)} ${brlShort(e.amount)} (dia ${e.dueDate.slice(8, 10)}/${e.dueDate.slice(5, 7)})`).join(' + ');
+    const free = round2(d.cash + at.income - at.essentials);
+    const line = (label, value, cls = '') => `<div class="row between sim-line ${cls}"><span>${label}</span><b class="num">${value}</b></div>`;
+    const verdict = free < -0.004
+      ? `<span class="c-magenta">Não fecha: faltam ${brl(-free)} só para as contas essenciais. Nada vai para as dívidas nesse período.</span>`
+      : at.toDebts > 0.004
+        ? `Os ${brl(at.toDebts)} vão para as dívidas na ordem da fila: ${doneD} de ${debtsTower.length} torres caem${at.missing > 0.004 ? ` e ainda ficam ${brl(at.missing)} em dívidas` : ''}.${at.reserve > 0.004 ? ` ${brl(at.reserve)} ficam de reserva.` : ''}`
+        : free > 0.004 ? `Sobram ${brl(free)} — ficam de reserva antes de atacar as dívidas.` : 'Fica zerado: nada sobra para as dívidas.';
     return `<div class="card tight sim-summary">
-      <div class="small">Até o fim de <b>${monthShort(at.endDate)}</b>: você tem <b class="num">${brl(d.cash)}</b> e entram <b class="num">${brl(at.income)}</b> livres; as essenciais levam <b class="num">${brl(at.essentials)}</b> e <b class="num c-cyan">${brl(at.toDebts)}</b> vão para dívidas.</div>
-      <div class="small" style="margin-top:6px">${doneN === queue ? `<span class="c-cyan">Todas as ${queue} torres caem nesse período.</span>` : `<b>${doneN}</b> de ${queue} torres caem nesse período · ainda faltam <b class="num c-magenta">${brl(at.missing)}</b>.`}${at.leftover > 0.004 ? ` Sobram <b class="num">${brl(at.leftover)}</b>.` : at.leftover < -0.004 ? ` <span class="c-magenta">Faltam ${brl(-at.leftover)} até para as essenciais.</span>` : ''}</div>
+      <b class="small">A conta até o fim de ${monthShort(at.endDate)}</b>
+      ${line('Você tem hoje (Pix)', brl(d.cash))}
+      ${line('+ Vai entrar (livre)', brl(at.income))}
+      ${line('− Contas essenciais', brl(at.essentials))}
+      ${essTxt ? `<div class="tiny c-ink3" style="margin:-2px 0 4px">${essTxt}</div>` : ''}
+      ${line('= Sobra depois das essenciais', brl(Math.max(0, free)), `total ${free < -0.004 ? 'neg' : ''}`)}
+      <div class="small" style="margin-top:8px">${verdict}</div>
       <div class="sim-legend"><span><i class="lg paid"></i>já pago</span><span><i class="lg plan"></i>o previsto paga</span><span><i class="lg ghost"></i>ainda falta</span><span><i class="lg money"></i>sobra</span></div>
-      <div class="tiny" style="margin-top:6px">Estimativa: ${proj.assumptions.join('; ')}. Nada é pago sozinho.</div>
+      <div class="tiny" style="margin-top:6px">Estimativa: ${proj.assumptions.join('; ')}. O vale travado não entra aqui (só paga mercado/transporte). Nada é pago sozinho.</div>
     </div>`;
   })() : '';
 
