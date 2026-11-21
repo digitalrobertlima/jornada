@@ -130,6 +130,7 @@ function installmentDebt(acc, entry, n) {
   return {
     id: uid('obl'), profileId: entry.profileId, type: 'card_debt', bucket: 'pessoal', zone: null,
     beneficiary: `${entry.note || entry.category} · ${acc.name} (${n}x)`, accountId: acc.id, sourceEntryId: entry.id,
+    tower: entry.tower === 'separada' ? 'separada' : 'fatura', // onde mostrar: dentro da torre da fatura ou numa torre só dela
     principalAmount: amount, totalAmount: amount, balance: amount,
     installmentAmount: round2(amount / n), installmentsLeft: n, installmentsTotal: n,
     monthlyInterestPercent: 0, status: 'open', rules: {}, dueDate: invoiceDue(acc, entry.date), createdAt: entry.date,
@@ -222,6 +223,7 @@ export function addLedgerEntry(state, input, { today, btcPrice } = {}) {
     note: input.note || '',
     installments: cardInstallments(acc, input.installments),
     obligationId: input.obligationId || null,
+    ...(input.tower ? { tower: input.tower } : {}),
     ...(input.fee ? { fee: input.fee, feeKind: input.feeKind, feeNote: input.feeNote } : {}),
     status: (input.date || today) > today ? 'scheduled' : 'posted',
     createdAt: new Date().toISOString(),

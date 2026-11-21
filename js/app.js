@@ -15,7 +15,7 @@ import { renderBattle, mountBattle } from './ui/views/battle.js';
 import { renderSovereign } from './ui/views/sovereign.js';
 import {
   renderOnboarding, openObligationWizard, openObligationDetail, openPaySheet, openScriptSheet,
-  openEntrySheet, removeEntry, openAccountWizard, openProfileWizard, openAporteSheet, openSatsUpdateSheet,
+  openEntrySheet, removeEntry, openCardGroup, openAccountWizard, openProfileWizard, openAporteSheet, openSatsUpdateSheet,
 } from './ui/wizards.js';
 import { openSimulator } from './ui/simulator.js';
 import { openMoveSheet } from './ui/move.js';
@@ -203,6 +203,7 @@ const actions = {
   },
   'obligation-new': (el) => openObligationWizard(el.dataset.kind),
   'obligation-open': (el) => openObligationDetail(el.dataset.id),
+  'card-group': (el) => openCardGroup(el.dataset.account),
   'entry-new': (el) => openEntrySheet({ dir: el.dataset.dir || 'out', accountId: el.dataset.account || null }),
   'entry-del': (el) => removeEntry(el.dataset.id),
   'entry-open': (el) => openEntry(el.dataset.id),

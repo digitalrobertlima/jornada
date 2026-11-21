@@ -164,6 +164,35 @@ function segmentedSceneHTML(item, maxValue) {
   return { html, paidBlocks };
 }
 
+/** Torre do cartão: a fatura à vista na base + um bloco por parcela de cada compra parcelada, tudo na mesma torre. */
+function groupSceneHTML(item, maxValue) {
+  const { hb, ht } = totemHeights(item.principalPart, item.riskLayer, maxValue);
+  const gap = 3;
+  let html = '<div class="scene tower" aria-hidden="true">';
+  let bottom = 0;
+  let k = 0;
+  let paidBlocks = 0;
+  for (const m of item.group) {
+    const share = Math.max(6, hb * (towerValue(m) / Math.max(1, item.principalPart)));
+    if (m.installment?.total >= 2) {
+      const blocks = Math.min(12, m.installment.total);
+      const paid = m.installment.total > 12 ? Math.round((m.installment.paid / m.installment.total) * blocks) : m.installment.paid;
+      const h = Math.max(5, (share - gap * (blocks - 1)) / blocks);
+      for (let j = 0; j < blocks; j++, k++) {
+        if (j < paid) paidBlocks++;
+        html += `<div class="prism ${j < paid ? 'paid' : 'base'}" data-k="${k}" style="height:${h.toFixed(1)}px;bottom:${(bottom + j * (h + gap)).toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div>`;
+      }
+      bottom += blocks * (h + gap);
+    } else {
+      html += `<div class="prism base" data-k="${k++}" style="height:${share.toFixed(1)}px;bottom:${bottom.toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div>`;
+      bottom += share + gap;
+    }
+  }
+  const top = Math.max(0, bottom - gap);
+  html += `<div class="prism risk${ht > 0 ? '' : ' none'}" style="height:${ht}px;bottom:${top.toFixed(1)}px"><i class="b"></i><i class="s"></i><i class="f"></i><i class="t"></i></div></div>`;
+  return { html, paidBlocks };
+}
+
 export function totemSceneHTML({ hb, ht }) {
   return `<div class="scene" aria-hidden="true">
     <div class="prism base" style="--h:${hb}px;height:${hb}px"><i class="b"></i><i class="s"></i><i class="f"></i>${ht > 0 ? '' : '<i class="t"></i>'}</div>
@@ -245,6 +274,8 @@ export function moneyTowerHTML({ leftover, reserve, maxValue, until }) {
   </div>`;
 }
 
+const actAttrs = (item) => (item.group ? `data-act="card-group" data-account="${esc(item.accountId)}"` : `data-act="obligation-open" data-id="${esc(item.id)}"`);
+
 export function renderTotem(item, { maxValue, order, isTarget, rate, sim = null }) {
   if (sim) {
     const status = sim.later
@@ -256,7 +287,7 @@ export function renderTotem(item, { maxValue, order, isTarget, rate, sim = null 
       : sim.paid > 0.004
         ? `<div class="sim-txt part">${brlShort(sim.paid)} pagos até ${monthShort(sim.until)}</div><div class="sim-txt miss">falta ${brlShort(sim.left)}</div>`
         : `<div class="sim-txt miss">falta ${brlShort(sim.left)} · o previsto não alcança</div>`;
-    return `<button type="button" class="totem sim${sim.done ? ' done' : ''}" data-act="obligation-open" data-id="${esc(item.id)}"
+    return `<button type="button" class="totem sim${sim.done ? ' done' : ''}" ${actAttrs(item)}
         aria-label="${esc(item.ob.beneficiary)}: ${sim.done ? `quitada em ${monthShort(sim.doneAt)}` : `faltam ${brl(sim.left)}`}">
       <div class="stage"><span class="order">#${order}</span>${simSceneHTML(item, sim, maxValue)}</div>
       <div class="cap"><div class="name">${esc(item.ob.beneficiary)}</div><div class="val num">${brlShort(item.updated)}</div>${status}</div>
@@ -265,13 +296,14 @@ export function renderTotem(item, { maxValue, order, isTarget, rate, sim = null 
 
   const segmented = item.installment?.total >= 2;
   const h = totemHeights(item.principalPart, item.riskLayer, maxValue);
-  const seg = segmented ? segmentedSceneHTML(item, maxValue) : null;
+  const seg = item.group ? groupSceneHTML(item, maxValue) : segmented ? segmentedSceneHTML(item, maxValue) : null;
+  const groupLines = item.group ? `<div class="inst">${item.group.map((m) => (m.ob.installmentAmount ? `${esc(m.ob.beneficiary.replace(/ · .*$/, ''))} ${m.installment ? `${m.installment.left ?? ''}x ${brlShort(m.installment.amount)}` : ''}` : `fatura ${brlShort(m.updated)}`)).join(' + ')}</div>` : '';
   const bleedTxt = item.bleed > 0 && rate > 0 ? `sangra ${lifeTime(item.bleed / rate * 60)}/mês` : item.riskParts.protestRisk ? 'risco de cartório' : '';
   const late = item.late > 0;
   const status = late
     ? `<span class="pill magenta">${icon('alert')}Atrasada</span>`
     : item.dueSoon ? `<span class="pill amber">${icon('clock')}${item.daysToDue === 0 ? 'Vence hoje' : item.daysToDue === 1 ? 'Vence amanhã' : `Vence em ${item.daysToDue}d`}</span>` : '';
-  return `<button type="button" class="totem${isTarget ? ' target' : ''}${late ? ' late' : ''}" data-act="obligation-open" data-id="${esc(item.id)}"
+  return `<button type="button" class="totem${isTarget ? ' target' : ''}${late ? ' late' : ''}" ${actAttrs(item)}
       aria-label="${esc(item.ob.beneficiary)}: ${brl(item.updated)}${late ? `, atrasada há ${item.late} dias` : ''}">
     <div class="stage" data-totem="${esc(item.id)}" data-hb="${h.hb}" data-ht="${h.ht}"${seg ? ` data-paid="${seg.paidBlocks}"` : ''}>
       <span class="order">#${order}</span>
@@ -282,6 +314,7 @@ export function renderTotem(item, { maxValue, order, isTarget, rate, sim = null 
       <div class="name">${esc(item.ob.beneficiary)}</div>
       <div class="val num">${brlShort(item.updated)}</div>
       ${late ? `<div class="late-txt">venceu ${dateShort(item.ob.dueDate)} · há ${item.late} dia${item.late > 1 ? 's' : ''}</div>` : ''}
+      ${groupLines}
       ${item.installment ? `<div class="inst">${esc(item.installment.label)} · ${brlShort(item.installment.amount)}</div>${installmentBar(item.installment)}` : ''}
       ${bleedTxt ? `<div class="bleed">${bleedTxt}</div>` : ''}
     </div>

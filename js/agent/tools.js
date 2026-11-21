@@ -306,6 +306,7 @@ ${hip}` };
 
   def('registrar_gasto', 'write', 'Registra um gasto (dinheiro que SAIU) que não é pagamento de conta cadastrada.', {
     valor: 'número', descricao: 'ex.: uber, mercado', categoria: 'opcional', conta: 'de qual conta saiu (opcional)', data: 'opcional',
+    parcelas: 'em quantas vezes no cartão (opcional)', torre: 'fatura | separada: onde mostrar a compra parcelada (opcional)',
   }, (a = {}) => {
     const { d, state, today, pid } = ctx();
     const valor = money(a.valor);
@@ -315,12 +316,15 @@ ${hip}` };
     const acc = pickAccount(state, pid, a.conta);
     if (!acc) throw new Error('Cadastre uma conta primeiro.');
     const date = dateArg(a.data, today) || today;
-    const res = addLedgerEntry(state, { profileId: pid, direction: 'out', amount: valor, accountId: acc.id, category, note: desc || category, date }, { today, btcPrice: api.btcPrice() });
+    const parcelas = Math.max(1, Math.round(num(a.parcelas, 1)) || 1);
+    const tower = /separ/.test(norm(a.torre)) ? 'separada' : 'fatura';
+    const res = addLedgerEntry(state, { profileId: pid, direction: 'out', amount: valor, accountId: acc.id, category, note: desc || category, date, installments: parcelas, tower }, { today, btcPrice: api.btcPrice() });
+    const parcelado = res.entry.installments > 1;
     const warn = isRealLiquidity(acc) && acc.balance < valor ? `${acc.name} tem ${brl(acc.balance)}: vai ficar negativa.` : null;
     const pressure = isRealLiquidity(acc) && d.cash - valor < d.wl.floor && d.wl.floor > 0
       ? `Depois disso faltam ${brl(d.wl.floor - (d.cash - valor))} para as contas essenciais dos próximos 15 dias.` : null;
     return {
-      preview: { title: 'Registrar gasto', lines: [`−${brl(valor)} · ${desc || category} (${category})`, `Sai de ${acc.name}`], warn: warn || pressure },
+      preview: { title: 'Registrar gasto', lines: [`−${brl(valor)} · ${desc || category} (${category})`, `Sai de ${acc.name}`, parcelado ? `${res.entry.installments}x de ${brl(valor / res.entry.installments)} · ${tower === 'separada' ? 'torre só dessa compra' : 'dentro da torre do cartão'}` : null].filter(Boolean), warn: warn || pressure },
       execute: async () => {
         const act = await api.commit(res.changes, { label: `Saída: ${desc || category} (${brl(valor)})` });
         return { text: `Registrado: −${brl(valor)} em ${acc.name}.`, actionId: act?.id };

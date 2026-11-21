@@ -596,6 +596,9 @@ export function openObligationDetail(id) {
           <option value="battlefield"${ob.zone === 'battlefield' ? ' selected' : ''}>Mover para a fila</option>
           <option value="quarantine"${ob.zone === 'quarantine' ? ' selected' : ''}>Guardar para depois</option></select></label>
       </div>
+      ${ob.type === 'card_debt' && ob.installmentAmount && ob.accountId ? `<label class="field"><span>Onde mostrar esta compra parcelada</span><select class="input" data-do-tower>
+        <option value="fatura"${ob.tower !== 'separada' ? ' selected' : ''}>Dentro da torre do cartão (total junto)</option>
+        <option value="separada"${ob.tower === 'separada' ? ' selected' : ''}>Numa torre só dela</option></select></label>` : ''}
       ${item.isProtestable ? '<button class="btn sm ghost" data-do="protested" type="button">Foi protestado (sair da contagem)</button>' : ''}
       <button class="btn sm danger" data-do="delete" type="button">${icon('trash')}Excluir</button>
     </div>`,
@@ -610,6 +613,10 @@ export function openObligationDetail(id) {
         await store.commit({ obligations: [{ ...ob, zone: e.target.value || null }] }, { label: `Mudou a zona: ${ob.beneficiary}` });
         close();
       };
+      el.querySelector('[data-do-tower]')?.addEventListener('change', async (e) => {
+        await store.commit({ obligations: [{ ...ob, tower: e.target.value }] }, { label: `Torre da compra: ${ob.beneficiary}` });
+        close();
+      });
       el.querySelector('[data-do=protested]')?.addEventListener('click', async () => {
         await store.commit({ obligations: [{ ...ob, protested: true }] }, { label: `Marcou protestado: ${ob.beneficiary}` });
         close();
@@ -621,6 +628,29 @@ export function openObligationDetail(id) {
           await store.commit({ removeObligations: [ob.id] }, { label: `Excluiu: ${ob.beneficiary}` });
         }
       };
+    },
+  });
+}
+
+// ------------------------------------------------------------ Torre do cartão (fatura + compras parceladas)
+
+export function openCardGroup(accountId) {
+  const d = store.derive();
+  const acc = store.state.accounts.find((a) => a.id === accountId);
+  const items = d.tri.battlefield.filter((i) => i.ob.type === 'card_debt' && i.ob.accountId === accountId);
+  const total = items.reduce((s, i) => s + i.updated, 0);
+  openSheet({
+    title: `Torre do cartão ${acc?.name || ''}`,
+    body: `<div class="stack">
+      <p class="small">Esta torre junta tudo o que você deve neste cartão: <b>${brl(total)}</b>. Toque numa parte para pagar ou ver detalhes.</p>
+      ${items.map((i) => `<button type="button" class="front-row" data-open="${esc(i.id)}">
+        <span class="t">${esc(i.ob.beneficiary)}</span><span class="v num">${brl(i.updated)}</span>
+        <span class="tiny">${i.installment ? `${esc(i.installment.label)} · ${brl(i.installment.amount)} por parcela` : 'Fatura (compras à vista)'}${i.ob.dueDate ? ` · vence ${dateHuman(i.ob.dueDate)}` : ''}</span>
+        <span class="tiny" style="text-align:right">${i.ob.installmentAmount ? (i.ob.tower === 'separada' ? 'torre separada' : 'dentro da torre do cartão') : ''}</span></button>`).join('')}
+      <p class="tiny">Quer uma compra parcelada numa torre só dela? Abra a compra e troque "Onde mostrar".</p>
+    </div>`,
+    onMount(el, close) {
+      el.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => { close(); openObligationDetail(b.dataset.open); }));
     },
   });
 }
@@ -770,7 +800,10 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
       <label class="field"><span>Categoria</span><select class="input" name="category"></select></label>
       ${textField('note', 'Descrição (opcional)', '', { placeholder: 'Ex.: mercado, uber, bico' })}
       ${dateField('date', 'Data', store.today, { hint: 'Data futura = agendado (entra na Onda de Liquidez).' })}
-      <div id="inst-box" hidden>${numField('installments', 'Parcelas (1 = à vista)', 1, { step: 1 })}<div class="tiny" id="inst-hint"></div></div>
+      <div id="inst-box" hidden>${numField('installments', 'Parcelas (1 = à vista)', 1, { step: 1 })}<div class="tiny" id="inst-hint"></div>
+        <div id="tower-box" hidden class="stack"><b class="small">Onde mostrar essa compra nas torres?</b>
+          ${seg('tower', [['fatura', 'Dentro da torre do cartão'], ['separada', 'Torre só dela']], 'fatura')}
+          <div class="tiny" id="tower-hint"></div></div></div>
       <button class="btn primary block" type="submit">Lançar</button>
     </form>`,
     onMount(el, close) {
@@ -800,6 +833,10 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
         el.querySelector('#inst-hint').textContent = canInst && n > 1 && amt > 0
           ? `${n}x de ${brl(round2(amt / n))}. Usa ${brl(amt)} do limite agora e a fatura se divide em ${n} partes (a 1ª vence ${dateHuman(invoiceDue(acc, v.date || store.today))}). Cada parcela paga devolve limite.`
           : acc?.type === 'collateralized_yield_crypto' ? 'Parcelado trava garantia até pagar cada parcela.' : '';
+        el.querySelector('#tower-box').hidden = !(canInst && n > 1 && amt > 0);
+        el.querySelector('#tower-hint').textContent = v.tower === 'separada'
+          ? `A torre do cartão continua do mesmo tamanho. Esta compra ganha uma torre ao lado, com ${n} blocos de ${brl(round2(amt / n))}.`
+          : `A torre do cartão cresce ${brl(amt)}: vira a fatura na base + ${n} blocos de ${brl(round2(amt / n))} por cima. Você vê o total do cartão numa torre só.`;
       };
       form.addEventListener('input', sync);
       form.addEventListener('change', (ev) => {
@@ -821,7 +858,7 @@ export function openEntrySheet({ dir = 'out', accountId = null } = {}) {
         if (amount <= 0) { toast('Informe o valor.', { tone: 'magenta' }); return; }
         const { changes, entry } = addLedgerEntry(store.state, {
           profileId: pid, direction: v.direction, amount, accountId: v.accountId, category: v.category, note: v.note.trim(),
-          date: v.date || store.today, installments: num(v.installments, 1),
+          date: v.date || store.today, installments: num(v.installments, 1), tower: v.tower || 'fatura',
         }, { today: store.today, btcPrice: store.btcPrice() });
         await store.commit(changes, { label: `${v.direction === 'in' ? 'Entrada' : 'Saída'}: ${v.note.trim() || v.category} (${brl(amount)})` });
         close();

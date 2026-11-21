@@ -6,6 +6,7 @@ import { icon } from '../icons.js';
 import { brl, brlShort, dateShort } from '../../core/format.js';
 import { renderTotem, animateTotems, towerValue, moneyTowerHTML, monthShort } from '../deck3d.js';
 import { projectFreedom, atHorizon } from '../../engines/freedom.js';
+import { groupCards } from '../../engines/cardGroups.js';
 import { deadlineOf, countdownText } from './hud.js';
 
 const ADD = [
@@ -33,7 +34,8 @@ export function renderBattle(d, state = null, sim = null) {
     const at = atHorizon(proj, h);
     simData = { proj, at, h };
   }
-  const maxValue = Math.max(1, ...tri.battlefield.map((i) => towerValue(i) + i.riskLayer));
+  const towers = groupCards(tri.battlefield, state?.accounts?.filter((a) => a.profileId === d.pid) || []);
+  const maxValue = Math.max(1, ...towers.map((i) => towerValue(i) + i.riskLayer));
   const shrinking = tri.battlefield.filter((i) => i.alerts.some((a) => a.kind === 'limitShrinking'));
   const bfTotal = tri.battlefield.reduce((s, i) => s + i.updated, 0);
   const bleedTotal = tri.battlefield.reduce((s, i) => s + i.bleed, 0);
@@ -50,11 +52,16 @@ export function renderBattle(d, state = null, sim = null) {
 
   const simFor = (i) => {
     if (!simData) return null;
+    if (i.group) {
+      const xs = i.group.map((m) => simData.at.per.get(m.id) || { paid: 0, left: m.updated, done: false });
+      const done = xs.every((x) => x.done);
+      return { paid: round2(xs.reduce((t, x) => t + x.paid, 0)), left: round2(xs.reduce((t, x) => t + x.left, 0)), done, doneAt: done ? xs.map((x) => x.doneAt).filter(Boolean).sort().pop() : null, until: simData.at.endDate };
+    }
     const x = simData.at.per.get(i.id) || { paid: 0, left: i.updated, done: false };
     if (x.essential && !x.dueIn) return { ...x, until: simData.at.endDate, later: true, left: 0 };
     return { ...x, until: simData.at.endDate };
   };
-  const totems = tri.battlefield.map((i, k) => renderTotem(i, { maxValue, order: k + 1, isTarget: tri.target?.id === i.id, rate, sim: simFor(i) })).join('')
+  const totems = towers.map((i, k) => renderTotem(i, { maxValue, order: k + 1, isTarget: tri.target?.id === i.id, rate, sim: simFor(i) })).join('')
     + (simData && Math.abs(simData.at.leftover) >= 1 ? moneyTowerHTML({ leftover: simData.at.leftover, reserve: simData.at.reserve, maxValue, until: simData.at.endDate }) : '');
   const simBar = tri.battlefield.length ? `<div class="sim-bar">
       <button type="button" class="btn sm${sim?.on ? ' primary' : ''}" data-act="sim-toggle" aria-pressed="${Boolean(sim?.on)}">${icon('spark')}${sim?.on ? 'Simulação ligada · toque para desligar' : 'Simular com o que vai entrar'}</button>
