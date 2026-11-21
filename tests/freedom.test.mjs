@@ -48,3 +48,17 @@ test('essencial entra no mês em que vence (aluguel de dezembro não pesa em nov
   assert.equal(dez.essentials, 598 + 1250 + 598);
   assert.equal(dez.per.get('alug').done, true);
 });
+
+test('atrasada vem antes de parcela; parcela só a partir do mês em que vence', () => {
+  const st = scenario();
+  st.obligations.push(
+    { id: 'bet', profileId: 'p', type: 'personal_debt', beneficiary: 'Betina', balance: 150, installmentAmount: 75, installmentsLeft: 2, installmentsTotal: 2, dueDate: '2026-11-28' },
+    { id: 'wil', profileId: 'p', type: 'personal_debt', beneficiary: 'Tio Wilson', balance: 1800, installmentAmount: 150, installmentsLeft: 12, installmentsTotal: 12, dueDate: '2026-12-05' },
+  );
+  const proj = projectFreedom(st, 'p', TODAY, triage(st, 'p', TODAY));
+  const nov = atHorizon(proj, 1);
+  assert.equal(nov.per.get('bmi').done, true, 'BMI atrasada é paga primeiro');
+  assert.equal(nov.per.get('wil').paid, 0, 'parcela de dezembro não é paga em novembro');
+  // 231,40 − 193,74 = 37,66 → parte da parcela da Betina (vence 28/11)
+  assert.ok(Math.abs(nov.per.get('bet').paid - 37.66) < 0.01);
+});

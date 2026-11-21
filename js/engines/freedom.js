@@ -79,6 +79,8 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
     name: i.ob.beneficiary, balance: round2(i.updated), inst: i.installment ? num(i.installment.amount) : 0,
     rate: i.installment ? 0 : num(i.ob.monthlyInterestPercent) / 100, quarantine: i.zone === 'quarantine', doneAt: null,
     urgent: i.zone === 'frontline' || i.late > 0,
+    // parcela só é cobrada a partir do mês do vencimento (atrasada = já, este mês)
+    first: i.ob.dueDate ? Math.max(0, monthIdx(i.ob.dueDate)) : 0,
   }));
   const debtTotal = round2(debts.reduce((s, d) => s + d.balance, 0));
   if (debts.some((d) => d.rate > 0)) assumptions.push('os juros cadastrados continuam iguais');
@@ -110,9 +112,17 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
       if (due - pay > 0.004) e.missed.push({ m, amount: round2(due - pay) });
       avail = round2(avail - due);
     }
-    // parcelas em dia
+    // 1) atrasadas e risco de cartório (sem parcela) vêm antes de tudo: é onde os juros e o cartório correm
+    for (const d of debts.filter((x) => x.urgent && !x.inst && !x.quarantine)) {
+      if (avail <= 0.004 || d.balance <= 0.004) continue;
+      const pay = round2(Math.min(avail, d.balance));
+      d.balance = round2(d.balance - pay);
+      avail = round2(avail - pay);
+      if (pay > 0) d.paid.push({ m, amount: pay });
+    }
+    // 2) parcelas do mês (só a partir do mês em que vencem)
     for (const d of debts) {
-      if (d.balance <= 0.004 || !d.inst || d.quarantine) continue;
+      if (d.balance <= 0.004 || !d.inst || d.quarantine || m < d.first) continue;
       const pay = round2(Math.min(d.inst, d.balance, Math.max(0, avail)));
       d.balance = round2(d.balance - pay);
       avail = round2(avail - pay);
