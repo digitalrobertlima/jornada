@@ -10,7 +10,7 @@ import { norm, matchByName, parseMoneyBR, parseDateBR } from '../core/text.js';
 import { normalizeObligation, normalizeAccount, isRealLiquidity, VITAL_KINDS, ACCOUNT_TYPES } from '../core/model.js';
 import { addLedgerEntry, payObligation } from '../engines/cashflow.js';
 import {
-  INCOME_KINDS, addForecast, confirmForecast, pendingForecasts, planDistribution,
+  INCOME_KINDS, addForecast, confirmForecast, pendingForecasts, planDistribution, essentialsCoverage,
 } from '../engines/forecast.js';
 import { buildGuide } from '../engines/guide.js';
 import { moveMoney, transferAccounts, movableFrom, placeName, shownValue } from '../engines/transfer.js';
@@ -116,6 +116,7 @@ export function createTools(api) {
   def('situacao', 'read', 'Resumo de agora: dinheiro livre, travado em vale, contas essenciais, dívidas e próximo passo.', {}, () => {
     const { d, state, today, pid } = ctx();
     const deficit = round2(Math.max(0, d.wl.floor - d.cash));
+    const cov = deficit > 0 ? essentialsCoverage(state, pid, today, d.wl, d.cash) : null;
     const debts = debtItems(d).filter((i) => !i.isVital);
     const late = debtItems(d, false).filter((i) => i.late > 0);
     const next = pendingForecasts(state, pid).find((e) => e.liquidity !== 'locked');
@@ -123,7 +124,9 @@ export function createTools(api) {
     const lines = [
       `Dinheiro livre (conta/Pix): ${brl(d.cash)}.`,
       d.liq.benefit > 0 ? `Travado em vale/benefício: ${brl(d.liq.benefit)} (só serve no cartão).` : null,
-      `Contas essenciais dos próximos 15 dias: ${brl(d.wl.floor)} — ${deficit > 0 ? `faltam ${brl(deficit)}` : `cobertas, sobram ${brl(d.cash - d.wl.floor)}`}.`,
+      `Contas essenciais dos próximos 15 dias: ${brl(d.wl.floor)} — ${deficit <= 0 ? `cobertas, sobram ${brl(d.cash - d.wl.floor)}`
+        : cov.shortfall <= 0 ? `hoje faltam ${brl(deficit)}, mas o que vai entrar antes do vencimento cobre (${cov.used.map((e) => `${e.note} ${brl(e.amount)}`).join(' + ')})`
+          : `faltam ${brl(cov.shortfall)} mesmo contando o que vai entrar`}.`,
       `Dívidas em aberto: ${debts.length} (${brl(debts.reduce((s, i) => s + i.updated, 0))}).`,
       late.length ? `Atrasadas: ${late.map((i) => `${i.ob.beneficiary} há ${i.late} ${plural(i.late, 'dia', 'dias')}`).join('; ')}.` : 'Nada atrasado.',
       next ? `Próxima entrada prevista: ${next.note} ${brl(next.amount)} em ${dateHuman(next.date)}${next.date < today ? ' (já devia ter caído)' : ''}.` : 'Nenhuma entrada prevista cadastrada.',
@@ -135,7 +138,7 @@ export function createTools(api) {
   def('o_que_fazer', 'read', 'Os próximos passos recomendados pelo guia do app, em ordem.', {}, () => {
     const { d, state } = ctx();
     const steps = buildGuide(d, { state }).slice(0, 3);
-    return { text: steps.map((s, i) => `${i + 1}. ${s.title}. ${s.why}`).join('\n') || 'Tudo em dia.' };
+    return { text: steps.map((s, i) => `${i + 1}. ${s.title}${/[.?!]$/.test(s.title) ? '' : '.'} ${s.why}`).join('\n') || 'Tudo em dia.' };
   });
 
   def('quando_fico_livre', 'read', 'Estima QUANDO todas as dívidas acabam ("quando vou respirar?"), seguindo o plano do app mês a mês.', {}, () => {
@@ -195,7 +198,7 @@ ${hip}` };
     const head = { ok: 'Dá para pagar tudo que vence no período.', tight: 'As essenciais fecham, mas alguma dívida não cabe inteira.', short: 'Falta dinheiro para pelo menos uma conta essencial na data.' }[p.verdict];
     const out = [head];
     p.moments.forEach((m, i) => {
-      const title = i === 0 ? `Hoje (você tem ${brl(p.cashNow)})` : `${dateHuman(m.date)}: entra ${m.label} ${brl(m.income)}`;
+      const title = i === 0 ? `Hoje (você tem ${brl(p.cashNow)}${m.income ? ` + ${brl(m.income)} de ${m.label}` : ''})` : `${dateHuman(m.date)}: ${m.income >= 0 ? 'entra' : 'sai'} ${m.label} ${brl(Math.abs(m.income))}`;
       const parts = m.lines.map((l) => `${l.kind === 'antecipar' ? 'adiantar' : 'pagar'} ${l.name} ${brl(l.amount)}${l.paidWith === 'vale' ? ' (no vale)' : ''}`);
       if (m.held > 0.004) parts.push(`segurar ${brl(m.held)} para essenciais seguintes`);
       if (m.reserve > 0.004) parts.push(`guardar ${brl(m.reserve)} de reserva`);
@@ -311,9 +314,17 @@ ${hip}` };
     const { d, state, today, pid } = ctx();
     const valor = money(a.valor);
     if (!(valor > 0)) throw new Error('Quanto foi o gasto?');
-    const desc = String(a.descricao || '').trim();
+    let desc = String(a.descricao || '').trim();
     const category = a.categoria ? String(a.categoria).toLowerCase() : guessCategory(desc, 'out', customCategories(state, pid, 'saida'));
-    const acc = pickAccount(state, pid, a.conta);
+    // "gastei 300 no nubank": a conta pode vir dentro da descrição
+    const sig = (x) => norm(x.name).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !/^(conta|cartao|corrente|credito|banco)$/.test(w));
+    const words = norm(desc).split(/[^a-z0-9]+/);
+    const named = !a.conta && desc ? accountsOf(state, pid).filter((x) => sig(x).length && sig(x).every((w) => words.includes(w))) : [];
+    const acc = named.length === 1 ? named[0] : pickAccount(state, pid, a.conta);
+    if (named.length === 1) {
+      const left = words.filter((w) => w && !sig(named[0]).includes(w)).join(' ').trim();
+      desc = left ? left.charAt(0).toUpperCase() + left.slice(1) : '';
+    }
     if (!acc) throw new Error('Cadastre uma conta primeiro.');
     const date = dateArg(a.data, today) || today;
     const parcelas = Math.max(1, Math.round(num(a.parcelas, 1)) || 1);
@@ -324,7 +335,7 @@ ${hip}` };
     const pressure = isRealLiquidity(acc) && d.cash - valor < d.wl.floor && d.wl.floor > 0
       ? `Depois disso faltam ${brl(d.wl.floor - (d.cash - valor))} para as contas essenciais dos próximos 15 dias.` : null;
     return {
-      preview: { title: 'Registrar gasto', lines: [`−${brl(valor)} · ${desc || category} (${category})`, `Sai de ${acc.name}`, parcelado ? `${res.entry.installments}x de ${brl(valor / res.entry.installments)} · ${tower === 'separada' ? 'torre só dessa compra' : 'dentro da torre do cartão'}` : null].filter(Boolean), warn: warn || pressure },
+      preview: { title: 'Registrar gasto', lines: [`−${brl(valor)} · ${desc ? `${desc} (${category})` : category}`, `${['credit_card', 'collateralized_yield_crypto'].includes(acc.type) ? 'No cartão' : 'Sai de'} ${acc.name}`, parcelado ? `${res.entry.installments}x de ${brl(valor / res.entry.installments)}: cada parcela entra na fatura do mês dela${tower === 'separada' ? ' (agrupada numa torre só dela)' : ''}` : null].filter(Boolean), warn: warn || pressure },
       execute: async () => {
         const act = await api.commit(res.changes, { label: `Saída: ${desc || category} (${brl(valor)})` });
         return { text: `Registrado: −${brl(valor)} em ${acc.name}.`, actionId: act?.id };
@@ -359,7 +370,8 @@ ${hip}` };
     ].filter(Boolean);
     let warn = null;
     if (acc && acc.balance < valor + fee) warn = `${acc.name} só tem ${brl(acc.balance)}.`;
-    else if (!item.isVital && !item.isProtestable && d.cash - valor < d.wl.floor) {
+    else if (!item.isVital && !item.isProtestable && d.cash - valor - fee < d.wl.floor
+      && essentialsCoverage(state, pid, today, d.wl, d.cash - valor - fee).shortfall > 0) {
       warn = `Cuidado: depois disso faltam ${brl(d.wl.floor - (d.cash - valor))} para as contas essenciais (aluguel, luz, comida). Só pague se essa dívida não puder esperar.`;
     }
     return {
@@ -471,7 +483,7 @@ ${hip}` };
     ['collateralized_yield_crypto', /limite|cartao|garantia|colateral|credito|bitcoin|btc/],
     ['checking_cash', /\bpix\b|conta corrente|corrente|saldo|\bconta\b|dinheiro/],
   ];
-  function pickPlace(state, pid, query, what) {
+  function pickPlace(state, pid, query, what, prefer = null) {
     const all = transferAccounts(state, pid);
     const q = norm(query);
     if (!q) throw new Error(`${what}?`);
@@ -484,6 +496,15 @@ ${hip}` };
       const byType = pool.filter((a) => types.includes(a.type));
       if (byType.length) pool = byType;
       else if (!byName.length) pool = all.filter((a) => types.includes(a.type));
+    }
+    // "azul" sem dizer cofrinho: não é o "COFRINHO AZUL"
+    if (pool.length > 1 && !/cofrinh|caixinh|poupanc|reserva/.test(q)) {
+      const plain = pool.filter((a) => a.type !== 'savings_pot' && !/cofrinh|caixinh|poupan|reserva/i.test(norm(a.name)));
+      if (plain.length) pool = plain;
+    }
+    if (pool.length > 1 && !types.length && prefer) {
+      const pref = pool.filter((a) => a.type === prefer);
+      if (pref.length === 1) return pref[0];
     }
     if (pool.length === 1) return pool[0];
     if (!pool.length) {
@@ -500,9 +521,12 @@ ${hip}` };
   }, (a = {}) => {
     const { state, pid } = ctx();
     if (transferAccounts(state, pid).length < 2) throw new Error('Preciso de pelo menos duas contas (ex.: Pix e cofrinho). Cadastre com "cadastrar cofrinho".');
-    const A = pickPlace(state, pid, a.de, 'conta de origem');
+    // destino primeiro (costuma ser o mais específico: "pro cofrinho"), depois a origem entre as outras
+    let B0 = null;
+    try { B0 = a.para ? pickPlace(state, pid, a.para, 'conta de destino') : null; } catch { B0 = null; }
+    const A = pickPlace(B0 ? { ...state, accounts: state.accounts.filter((x) => x.id !== B0.id) } : state, pid, a.de, 'conta de origem', 'checking_cash');
     const pool = transferAccounts(state, pid).filter((x) => x.id !== A.id);
-    const B = a.para ? pickPlace({ ...state, accounts: state.accounts.filter((x) => x.id !== A.id) }, pid, a.para, 'conta de destino') : null;
+    const B = B0 && B0.id !== A.id ? B0 : a.para ? pickPlace({ ...state, accounts: state.accounts.filter((x) => x.id !== A.id) }, pid, a.para, 'conta de destino') : null;
     if (!B) throw new Error(`Para onde vai? ${pool.map((x) => x.name).join(', ')}.`);
     const todo = /^(tudo|todo|total|o que (tem|dá|da))/i.test(String(a.valor || '').trim());
     const valor = todo ? movableFrom(A) : money(a.valor);

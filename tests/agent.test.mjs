@@ -70,7 +70,7 @@ test('protocolo: lê o pedido de ferramenta em vários formatos', () => {
 
 test('prompt do sistema cabe no contexto do celular', () => {
   const { tools } = setup();
-  const p = buildSystemPrompt(tools, { userName: 'Robert' });
+  const p = buildSystemPrompt(tools, { userName: 'Ana' });
   assert.ok(p.length < 9000, `prompt com ${p.length} caracteres`);
   assert.match(p, /registrar_entrada/);
 });

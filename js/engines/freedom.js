@@ -81,6 +81,7 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
     urgent: i.zone === 'frontline' || i.late > 0,
     // parcela só é cobrada a partir do mês do vencimento (atrasada = já, este mês)
     first: i.ob.dueDate ? Math.max(0, monthIdx(i.ob.dueDate)) : 0,
+    hasDate: Boolean(i.ob.dueDate),
   }));
   const debtTotal = round2(debts.reduce((s, d) => s + d.balance, 0));
   if (debts.some((d) => d.rate > 0)) assumptions.push('os juros cadastrados continuam iguais');
@@ -128,6 +129,14 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
       avail = round2(avail - pay);
       if (pay > 0) d.paid.push({ m, amount: pay });
     }
+    // 3) contas de pagamento único que vencem neste mês (ex.: fatura do cartão): pagas na data, antes de adiantar outras
+    for (const d of debts) {
+      if (avail <= 0.004 || d.balance <= 0.004 || d.inst || d.quarantine || d.urgent || !d.hasDate || m < d.first) continue;
+      const pay = round2(Math.min(avail, d.balance));
+      d.balance = round2(d.balance - pay);
+      avail = round2(avail - pay);
+      if (pay > 0) d.paid.push({ m, amount: pay });
+    }
     if (avail < 0) {
       worst = Math.min(worst, avail);
       carry = avail;
@@ -145,7 +154,7 @@ export function projectFreedom(state, pid, today, tri, { reserveTarget = 500, ma
         if (pay > 0) d.paid.push({ m, amount: pay });
       }
     };
-    // 1) urgentes (atrasadas, risco de cartório) 2) reserva pequena 3) resto da fila 4) guardadas para depois
+    // sobra: 1) urgentes (atrasadas, risco de cartório) 2) reserva pequena 3) adiantar o resto da fila 4) guardadas para depois
     attack(debts.filter((d) => d.urgent && !d.quarantine));
     const toReserve = round2(Math.min(avail, Math.max(0, reserveTarget - reserve)));
     reserve = round2(reserve + toReserve);
@@ -214,7 +223,10 @@ export function atHorizon(proj, h) {
   return {
     last, endDate: `${addMonths(proj.start, last).slice(0, 7)}-01`, per,
     income, essentials, toDebts, missing,
-    essentialList: (proj.essentials || []).map((e) => ({ name: e.name, dueDate: e.dueDate, amount: round2([...Array(last + 1).keys()].reduce((a, m) => a + (m === e.first ? e.now : e.monthly && m > e.first ? e.each : 0), 0)) })).filter((x) => x.amount > 0.004),
+    essentialList: (proj.essentials || []).map((e) => {
+      const dues = [...Array(last + 1).keys()].map((m) => (m === e.first ? e.now : e.monthly && m > e.first ? e.each : 0)).filter((v) => v > 0.004);
+      return { name: e.name, dueDate: e.dueDate, amount: round2(dues.reduce((a, v) => a + v, 0)), times: dues.length, each: e.each };
+    }).filter((x) => x.amount > 0.004),
     leftover: round2(end.carry + end.reserve), reserve: round2(end.reserve),
   };
 }

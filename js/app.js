@@ -21,6 +21,7 @@ import { openSimulator } from './ui/simulator.js';
 import { openMoveSheet } from './ui/move.js';
 import { openEssentials, openVictories, openEntry } from './ui/sheets.js';
 import { openForecastSheet, openForecastDetail, openPlanSheet } from './ui/forecast.js';
+import { scheduledToMonthly } from './engines/forecast.js';
 import { schedulePush, renderCloudButton, syncNow, connectGoogle, cloudConnected, setReloadHook } from './ui/cloud.js';
 import { openSettings, clearAll } from './ui/settings.js';
 import { initAssistant, openAssistant, assistantOpen, assistantNote } from './ui/assistant.js';
@@ -211,6 +212,13 @@ const actions = {
   'forecast-new': () => openForecastSheet(),
   'forecast-open': (el) => openForecastDetail(el.dataset.id),
   'forecast-plan': () => openPlanSheet(),
+  'sched-monthly': async (el) => {
+    try {
+      const e = store.state.ledger.find((x) => x.id === el.dataset.id);
+      await store.commit(scheduledToMonthly(store.state, el.dataset.id), { label: `Todo mês: ${e?.note || 'entrada'}` });
+      toast('Pronto: agora entra todo mês nas previsões.', { tone: 'cyan' });
+    } catch (err) { toast(esc(err.message), { tone: 'magenta' }); }
+  },
   essentials: () => openEssentials(),
   victories: () => openVictories(),
   'account-new': () => openAccountWizard(),

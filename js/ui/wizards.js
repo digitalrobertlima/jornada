@@ -914,14 +914,17 @@ export async function removeEntry(id) {
 
 // ------------------------------------------------------------ Contas
 
+const SWITCHABLE = ['checking_cash', 'savings_pot'];
+
 export function openAccountWizard(existingId = null) {
   const ex = existingId ? store.state.accounts.find((a) => a.id === existingId) : null;
   const type = ex?.type || 'checking_cash';
   openSheet({
     title: ex ? `Editar ${ex.name}` : 'Nova conta ou cartão',
     body: `<form novalidate>
-      <label class="field"><span>Tipo</span><select class="input" name="type"${ex ? ' disabled' : ''}>
-        ${Object.entries(ACCOUNT_TYPES).map(([k, t]) => `<option value="${k}"${k === type ? ' selected' : ''}>${t.label}</option>`).join('')}</select></label>
+      <label class="field"><span>Tipo</span><select class="input" name="type"${ex && !SWITCHABLE.includes(ex.type) ? ' disabled' : ''}>
+        ${Object.entries(ACCOUNT_TYPES).filter(([k]) => !ex || !SWITCHABLE.includes(ex.type) || SWITCHABLE.includes(k)).map(([k, t]) => `<option value="${k}"${k === type ? ' selected' : ''}>${t.label}</option>`).join('')}</select>
+        ${ex && SWITCHABLE.includes(ex.type) ? '<small>Conta e cofrinho podem trocar de tipo: o saldo continua o mesmo. Cofrinho não conta como dinheiro livre até você mover para o Pix.</small>' : ''}</label>
       ${textField('name', 'Nome', ex?.name || '', { required: true, placeholder: 'Ex.: Nubank, Caju, Bipa' })}
       <div data-t="checking_cash benefit_card savings_pot">${moneyField('balance', 'Saldo atual', ex?.balance ?? '', { big: true })}</div>
       <div data-t="savings_pot" class="stack">
@@ -960,7 +963,7 @@ export function openAccountWizard(existingId = null) {
       form.onsubmit = async (e) => {
         e.preventDefault();
         const v = formData(form);
-        const t = ex?.type || v.type;
+        const t = ex && !SWITCHABLE.includes(ex.type) ? ex.type : v.type || ex?.type;
         if (!v.name.trim()) { toast('Dê um nome à conta.', { tone: 'magenta' }); return; }
         const acc = normalizeAccount({
           ...(ex || { id: uid('acc'), profileId: store.pid }), type: t, name: v.name.trim(),

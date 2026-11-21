@@ -7,6 +7,7 @@ import { brl, lifeTime, dateHuman } from '../../core/format.js';
 import { minutesToWorkdays } from '../../engines/lifeHours.js';
 import { ERAS } from '../../engines/eraMachine.js';
 import { buildGuide, closedDebts } from '../../engines/guide.js';
+import { essentialsCoverage } from '../../engines/forecast.js';
 import { recipesHUDHTML } from '../../recipes/ui.js';
 
 export function deadlineOf(item) {
@@ -101,6 +102,7 @@ export function renderHUD(d, store) {
   const era = ERAS[eras.currentEra - 1];
   const deficit = Math.max(0, wl.floor - cash);
   const coveragePct = wl.floor > 0 ? Math.min(100, (cash / wl.floor) * 100) : 100;
+  const cov = deficit > 0 ? essentialsCoverage(store.state, d.pid, d.today, wl, cash) : null;
   const workdays = minutesToWorkdays(profile.rescuedLifeMinutes, profile);
   const steps = buildGuide(d, { state: store.state, today: d.today });
   const closed = closedDebts(store.state, d.pid);
@@ -148,9 +150,11 @@ export function renderHUD(d, store) {
     </div>
 
     <button type="button" class="card tight tap" data-act="essentials">
-      <div class="row between"><span class="small">${icon('drop', deficit > 0 ? 'c-magenta' : 'c-cyan')} Contas essenciais dos próximos 15 dias</span><b class="num">${brl(wl.floor)}</b></div>
+      <div class="row between"><span class="small">${icon('drop', cov?.shortfall > 0 ? 'c-magenta' : deficit > 0 ? 'c-amber' : 'c-cyan')} Contas essenciais dos próximos 15 dias</span><b class="num">${brl(wl.floor)}</b></div>
       <div class="meter${deficit > 0 ? ' magenta' : ''}" style="margin:8px 0 6px"><i style="width:${coveragePct}%"></i></div>
-      <div class="tiny ${deficit > 0 ? 'c-magenta' : 'c-cyan'}">${deficit > 0 ? `Faltam ${brl(deficit)} — esse dinheiro não deve ir para outras dívidas.` : `Cobertas. Sobram ${brl(cash - wl.floor)} na conta.`}</div>
+      <div class="tiny ${cov?.shortfall > 0 ? 'c-magenta' : deficit > 0 ? 'c-amber' : 'c-cyan'}">${deficit <= 0 ? `Cobertas. Sobram ${brl(cash - wl.floor)} na conta.`
+        : cov.shortfall <= 0 ? `Hoje faltam ${brl(deficit)}, mas o que vai entrar antes do vencimento cobre. Não gaste esse dinheiro em outra coisa.`
+          : `Faltam ${brl(cov.shortfall)}${cov.used.length ? ' mesmo contando o que vai entrar' : ''} — esse dinheiro não deve ir para outras dívidas.`}</div>
       <div class="tiny c-ink3" style="margin-top:4px">${wl.items.length} ${wl.items.length === 1 ? 'conta' : 'contas'} · toque para ver e pagar ›</div>
     </button>
 

@@ -1,6 +1,7 @@
 // Máquina das 4 Eras + Trava de Soberania Web3.
 // Era I Blindagem → Era II Demolição → Era III Quebra de Correntes → Era IV Soberania.
 
+import { brl } from '../core/format.js';
 import { num, round2, clamp } from '../core/util.js';
 
 export const ERAS = [
@@ -37,7 +38,7 @@ export function evaluateEras(ctx) {
   const era1Checks = [
     { label: 'Nenhum boleto a caminho do cartório', ok: protestables.length === 0, detail: protestables.length ? `${protestables.length} em risco` : '' },
     { label: 'Contas vitais em dia', ok: overdueVitals.length === 0, detail: overdueVitals.length ? `${overdueVitals.length} atrasada(s)` : '' },
-    { label: 'Contas essenciais dos próximos 15 dias cobertas', ok: waterlineDeficit === 0, detail: waterlineDeficit ? `faltam ${waterlineDeficit.toFixed(2)}` : '' },
+    { label: 'Contas essenciais dos próximos 15 dias cobertas', ok: waterlineDeficit === 0, detail: waterlineDeficit ? `faltam ${brl(waterlineDeficit)} hoje` : '' },
     { label: `Micro-escudo de R$ ${shieldTarget.toFixed(0)}`, ok: shieldCurrent >= shieldTarget - 0.01, detail: '' },
   ];
   const era1Progress = (

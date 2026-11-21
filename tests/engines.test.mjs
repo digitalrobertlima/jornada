@@ -227,30 +227,30 @@ test('o exemplo do SPEC.md importa e passa pela triagem', async () => {
   assert.equal(t1.frontline.find((i) => i.id === 'obl_rent_01').open, 1250);
 });
 
-test('dívida com pessoa parcelada: 3x de R$ 75 (caso Betina)', () => {
+test('dívida com pessoa parcelada: 3x de R$ 75 (pessoa com parcelas)', () => {
   const s = buildDemoScenario(TODAY);
   s.obligations.push(normalizeObligation({
-    id: 'obl_betina', profileId: 'prof_01', type: 'personal_debt', bucket: 'familia', beneficiary: 'Betina',
+    id: 'obl_pessoa', profileId: 'prof_01', type: 'personal_debt', bucket: 'familia', beneficiary: 'Pessoa A',
     balance: 225, principalAmount: 225, installmentAmount: 75, installmentsTotal: 3, installmentsLeft: 3, dueDate: '2026-11-25',
   }));
-  let item = triage(s, 'prof_01', TODAY).battlefield.find((i) => i.id === 'obl_betina');
+  let item = triage(s, 'prof_01', TODAY).battlefield.find((i) => i.id === 'obl_pessoa');
   assert.equal(item.dueNow, 75); // vence agora só a parcela
   assert.equal(item.updated, 225); // a Bola de Neve enxerga o saldo inteiro
   assert.equal(item.installment.label, 'parcela 1/3');
 
-  let r = payObligation(s, { obligationId: 'obl_betina', profileId: 'prof_01', amount: 75, accountId: 'acc_bank_01', date: TODAY }, { today: TODAY });
+  let r = payObligation(s, { obligationId: 'obl_pessoa', profileId: 'prof_01', amount: 75, accountId: 'acc_bank_01', date: TODAY }, { today: TODAY });
   let s2 = apply(s, r.changes);
-  let ob = s2.obligations.find((o) => o.id === 'obl_betina');
+  let ob = s2.obligations.find((o) => o.id === 'obl_pessoa');
   assert.equal(ob.balance, 150);
   assert.equal(ob.installmentsLeft, 2);
   assert.equal(ob.dueDate, '2026-12-25');
-  item = triage(s2, 'prof_01', TODAY).battlefield.find((i) => i.id === 'obl_betina');
+  item = triage(s2, 'prof_01', TODAY).battlefield.find((i) => i.id === 'obl_pessoa');
   assert.equal(item.installment.label, 'parcela 2/3');
 
   // duas parcelas de uma vez quitam tudo
-  r = payObligation(s2, { obligationId: 'obl_betina', profileId: 'prof_01', amount: 150, date: TODAY }, { today: TODAY });
+  r = payObligation(s2, { obligationId: 'obl_pessoa', profileId: 'prof_01', amount: 150, date: TODAY }, { today: TODAY });
   assert.equal(r.fullyPaid, true);
-  ob = apply(s2, r.changes).obligations.find((o) => o.id === 'obl_betina');
+  ob = apply(s2, r.changes).obligations.find((o) => o.id === 'obl_pessoa');
   assert.equal(ob.status, 'paid');
   assert.equal(ob.installmentsLeft, 0);
 });

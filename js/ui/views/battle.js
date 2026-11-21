@@ -72,15 +72,17 @@ export function renderBattle(d, state = null, sim = null, view = {}) {
     const { at, proj } = simData;
     const queue = tri.battlefield.length;
     const doneN = tri.battlefield.filter((i) => at.per.get(i.id)?.done).length;
-    const debtsTower = tri.battlefield.filter((i) => !i.isVital);
-    const doneD = debtsTower.filter((i) => at.per.get(i.id)?.done).length;
-    const essTxt = at.essentialList.map((e) => `${esc(e.name)} ${brlShort(e.amount)} (dia ${e.dueDate.slice(8, 10)}/${e.dueDate.slice(5, 7)})`).join(' + ');
+    const debtsTower = towers.filter((i) => !i.isVital);
+    const doneD = debtsTower.filter((i) => simFor(i)?.done).length;
+    const essTxt = at.essentialList.map((e) => (e.times > 1
+      ? `${esc(e.name)} ${e.times}× ${brlShort(e.each)} (todo dia ${Number(e.dueDate.slice(8, 10))})`
+      : `${esc(e.name)} ${brlShort(e.amount)} (dia ${e.dueDate.slice(8, 10)}/${e.dueDate.slice(5, 7)})`)).join(' + ');
     const free = round2(d.cash + at.income - at.essentials);
     const line = (label, value, cls = '') => `<div class="row between sim-line ${cls}"><span>${label}</span><b class="num">${value}</b></div>`;
     const verdict = free < -0.004
       ? `<span class="c-magenta">Não fecha: faltam ${brl(-free)} só para as contas essenciais. Nada vai para as dívidas nesse período.</span>`
       : at.toDebts > 0.004
-        ? `Os ${brl(at.toDebts)} vão para as dívidas na ordem da fila: ${doneD} de ${debtsTower.length} torres caem${at.missing > 0.004 ? ` e ainda ficam ${brl(at.missing)} em dívidas` : ''}.${at.reserve > 0.004 ? ` ${brl(at.reserve)} ficam de reserva.` : ''}`
+        ? `Os ${brl(at.toDebts)} vão para as dívidas na ordem da fila: ${doneD} de ${debtsTower.length} torres caem${at.missing > 0.004 ? ` e ainda ficam ${brl(at.missing)} em dívidas` : ''}.${at.reserve > 0.004 ? ` ${brl(at.reserve)} ficam de reserva.` : ''}${at.leftover - at.reserve > 0.5 ? ` E sobram ${brl(at.leftover - at.reserve)} livres no fim.` : ''}`
         : free > 0.004 ? `Sobram ${brl(free)} — ficam de reserva antes de atacar as dívidas.` : 'Fica zerado: nada sobra para as dívidas.';
     return `<div class="card tight sim-summary">
       <b class="small">A conta até o fim de ${monthShort(at.endDate)}</b>

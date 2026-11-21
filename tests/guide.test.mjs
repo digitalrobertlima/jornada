@@ -27,7 +27,13 @@ test('guia: cartório vem primeiro', () => {
 
 test('guia: sem cartório, falta para as essenciais vira o próximo passo, com opções', () => {
   const s = buildDemoScenario(TODAY);
-  const g = buildGuide(derive(s, 'prof_01'), { state: s });
+  // com o adiantamento previsto antes do aluguel, as essenciais fecham: o guia avisa para não gastar
+  let g = buildGuide(derive(s, 'prof_01'), { state: s });
+  assert.equal(g[0].id, 'waterline-covered');
+  assert.match(g[0].why, /Adiantamento/);
+  // sem a previsão, falta de verdade
+  s.ledger = s.ledger.filter((e) => !e.forecast);
+  g = buildGuide(derive(s, 'prof_01'), { state: s });
   assert.equal(g[0].id, 'waterline');
   assert.match(g[0].why, /Melhores saídas/);
   assert.ok(g.some((x) => x.id === 'shrink-obl_cc_01'));
@@ -54,10 +60,10 @@ test('guia: perfil vazio ensina a começar', () => {
 
 test('guia: conta já atrasada não vira "vence … mas o dinheiro só entra" (sem R$ 0,00 sem sentido)', async () => {
   const s = buildDemoScenario(TODAY);
-  s.obligations.push({ id: 'obl_bmi', profileId: 'prof_01', type: 'boleto', bucket: 'pessoal', beneficiary: 'BMI TELECOM', principalAmount: 99, totalAmount: 99, balance: 99, dueDate: '2026-11-17', status: 'open', monthlyInterestPercent: 5, rules: {} });
+  s.obligations.push({ id: 'obl_net', profileId: 'prof_01', type: 'boleto', bucket: 'pessoal', beneficiary: 'Internet Fibra', principalAmount: 99, totalAmount: 99, balance: 99, dueDate: '2026-11-17', status: 'open', monthlyInterestPercent: 5, rules: {} });
   s.ledger.forEach((e) => { if (e.forecast) e.date = '2026-12-07'; });
   s.accounts.find((a) => a.id === 'acc_bank_01').balance = 0;
   const g = buildGuide(derive(s, 'prof_01'), { state: s });
-  assert.ok(!g.some((x) => x.id === 'forecast-gap-obl_bmi'));
+  assert.ok(!g.some((x) => x.id === 'forecast-gap-obl_net'));
   assert.ok(!g.some((x) => /R\$\s?0,00 e faltam R\$\s?0,00/.test(x.why)));
 });

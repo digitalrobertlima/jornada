@@ -126,7 +126,9 @@ export function parseBasic(text, today) {
   }
   // gasto
   if (/^(gastei|comprei|saiu|torrei|usei)\b/.test(t) || /\b(gastei|comprei)\b/.test(t)) {
-    return { tool: 'registrar_gasto', args: { valor, descricao: rest(text, /\b(gastei|comprei|saiu|torrei|usei)\b/g) } };
+    const parc = t.match(/(?:em |parcelad[oa] em )?(\d{1,2}) ?(?:x|vezes)\b/);
+    const tx = parc ? text.replace(/(?:em |parcelad[oa] em )?\d{1,2} ?(?:x|vezes)\b/i, ' ') : text;
+    return { tool: 'registrar_gasto', args: { valor: parseMoneyBR(tx), descricao: rest(tx, /\b(gastei|comprei|saiu|torrei|usei|parcelado|parcelada)\b/g), parcelas: parc ? Number(parc[1]) : undefined } };
   }
   // dívida nova
   if (/(devo|to devendo|estou devendo|peguei emprestado|fiz um emprestimo|cadastra|cadastrar|nova conta|novo boleto|tenho um boleto|tenho uma divida)/.test(t) && valor) {

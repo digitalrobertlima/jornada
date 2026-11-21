@@ -9,7 +9,7 @@
 import { brl, lifeTime, dateHuman } from '../core/format.js';
 import { addDays } from '../core/dates.js';
 import { num, round2 } from '../core/util.js';
-import { planDistribution, pendingForecasts } from './forecast.js';
+import { planDistribution, pendingForecasts, essentialsCoverage, scheduledLiquid } from './forecast.js';
 
 const life = (amount, rate) => (rate > 0 ? lifeTime((amount / rate) * 60) : '');
 const plural = (n, s, p) => (n === 1 ? s : p);
@@ -70,21 +70,43 @@ export function buildGuide(d, { state }) {
     });
   }
 
-  // 3) Falta dinheiro para as contas essenciais dos próximos 15 dias
+  // 3) Falta dinheiro para as contas essenciais dos próximos 15 dias — contando o que vai entrar antes de cada vencimento
   const deficit = round2(Math.max(0, wl.floor - cash));
-  if (deficit > 0) {
+  const cov = deficit > 0 && d.today ? essentialsCoverage(state, pid, d.today, wl, cash) : { shortfall: deficit, used: [] };
+  if (deficit > 0 && cov.shortfall <= 0) {
+    push({
+      id: 'waterline-covered', tone: 'info',
+      title: `As contas essenciais (${brl(wl.floor)}) fecham com o que vai entrar`,
+      why: `Hoje você tem ${brl(cash)}. Com ${cov.used.map((e) => `${e.note} (${brl(e.amount)}, ${dateHuman(e.date)})`).join(' e ')}, dá para pagar ${wl.items.map((i) => i.ob.beneficiary).join(', ')} no vencimento. Não use esse dinheiro em outra coisa antes, e toque em "Caiu!" quando entrar.`,
+      actions: [{ label: 'Ver como distribuir', act: 'forecast-plan', primary: true }],
+    });
+  } else if (deficit > 0) {
     const biggest = [...wl.items].sort((a, b) => b.dueNow - a.dueNow)[0];
     const loans = tri.battlefield.filter((x) => x.ob.receivedAmount && num(x.ob.loanTotal) > num(x.ob.receivedAmount));
     const loanCost = loans.length ? Math.round(((num(loans[0].ob.loanTotal) - num(loans[0].ob.receivedAmount)) / num(loans[0].ob.receivedAmount)) * 100) : null;
+    const counted = cov.used.length ? ' mesmo contando o que vai entrar' : '';
     push({
       id: 'waterline', tone: 'warn',
-      title: `Faltam ${brl(deficit)} para as contas essenciais dos próximos 15 dias`,
+      title: `Faltam ${brl(cov.shortfall)} para as contas essenciais dos próximos 15 dias${counted}`,
       why: `Melhores saídas, nesta ordem: 1) segure gastos que não são essenciais; 2) peça para mudar a data${biggest ? ` de ${biggest.ob.beneficiary}` : ''}; 3) renda extra rápida (bico, venda); 4) empréstimo só em último caso${loanCost ? ` — o último custou ${loanCost}% a mais` : ''}. Não use o dinheiro dessas contas para pagar outras dívidas.`,
-      amount: deficit,
+      amount: cov.shortfall,
       actions: [
         ...(biggest ? [{ label: `Roteiro: adiar ${biggest.ob.beneficiary}`, act: 'script', id: biggest.id, primary: true }] : []),
         { label: 'Entrou dinheiro', act: 'caiu' },
       ],
+    });
+  }
+
+  // 3a) Entrada agendada que parece fixa (salário, vale) mas não está marcada "todo mês": a projeção some com ela depois
+  const recurring = d.today ? scheduledLiquid(state, pid).filter((e) => e.direction === 'in' && e.date >= d.today
+    && /sal[aá]rio|vale|benef|adiantamento|quinzena|pens[aã]o|aposentad/i.test(`${e.note} ${e.category}`)) : [];
+  if (recurring.length) {
+    const e = recurring[0];
+    push({
+      id: `recurring-${e.id}`, tone: 'info',
+      title: `${e.note || e.category} (${brl(e.amount)}) cai todo mês?`,
+      why: `Está agendado só para ${dateHuman(e.date)}. Se ele se repete, marque como "todo mês": o plano e o "quando vou respirar?" passam a contar com ele nos próximos meses.`,
+      actions: [{ label: 'Sim, cai todo mês', act: 'sched-monthly', id: e.id, primary: true }, { label: 'Ver lançamento', act: 'entry-open', id: e.id }],
     });
   }
 
@@ -199,6 +221,16 @@ export function buildGuide(d, { state }) {
       id: `last-${i.id}`, tone: 'win', title: `Falta só 1 parcela de ${i.ob.beneficiary}`,
       why: `${brl(i.dueNow)} e essa torre fica toda azul. A reta final é onde mais vale manter o ritmo.`,
       actions: [{ label: `Paguei ${brl(i.dueNow)}`, act: 'pay', id: i.id, primary: true }],
+    });
+  }
+
+  // conta com nome de cofrinho cadastrada como conta Pix: está somando no "dinheiro livre"
+  const pot = state.accounts.find((a) => a.profileId === pid && a.type === 'checking_cash' && /cofrinh|caixinh|poupan/i.test(a.name));
+  if (pot && steps.length < 6) {
+    push({
+      id: `pot-type-${pot.id}`, tone: 'info', title: `${pot.name} está como conta Pix`,
+      why: 'Se é um cofrinho ou caixinha, marque o tipo como Cofrinho: o saldo dele deixa de contar como dinheiro livre para as contas, e você usa "Mover saldo" quando precisar dele.',
+      actions: [{ label: 'Mudar o tipo', act: 'account-edit', id: pot.id, primary: true }],
     });
   }
 

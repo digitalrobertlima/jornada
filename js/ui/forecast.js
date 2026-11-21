@@ -176,7 +176,9 @@ export function planHTML(plan) {
       <button class="btn sm" type="button" data-act="script" data-id="${esc(g.id)}" style="margin-top:6px">${icon('phone')}Roteiro de ligação</button></div>`).join('')}</section>` : '';
 
   const moments = plan.moments.map((m, i) => {
-    const title = i === 0 ? `Hoje · você tem ${brl(plan.cashNow)}${m.income ? ` + ${brl(m.income)} que já devia ter caído` : ''}` : `${dateHuman(m.date)} · entra ${esc(m.label)} (${brl(m.income)})`;
+    const title = i === 0
+      ? `Hoje · você tem ${brl(plan.cashNow)}${m.income ? ` + ${brl(m.income)} ${m.overdue ? 'que já devia ter caído' : `que entra hoje (${esc(m.label)})`}` : ''}`
+      : `${dateHuman(m.date)} · ${m.income >= 0 ? 'entra' : 'sai'} ${esc(m.label)} (${brl(Math.abs(m.income))})`;
     const rows = m.lines.map(lineHTML).join('');
     const extra = [
       m.held > 0.004 ? `<div class="plan-note">${icon('shield')}<span>Segure <b>${brl(m.held)}</b>: vão para as contas essenciais que vencem logo depois.</span></div>` : '',
@@ -184,7 +186,7 @@ export function planHTML(plan) {
       m.holding && m.leftover > 0.004 ? `<div class="plan-note">${icon('info')}<span>Guarde <b>${brl(m.leftover)}</b>: soma com a próxima entrada para pagar o que falta.</span></div>` : '',
       !m.holding && m.leftover - (m.held || 0) > 0.004 ? `<div class="plan-note">${icon('check')}<span>Sobra <b>${brl(m.leftover - (m.held || 0))}</b> livres.</span></div>` : '',
     ].join('');
-    const landed = m.entries.length ? `<div class="row wrap" style="gap:6px;margin-top:6px">${m.entries.map((e) => `<button class="btn sm" data-act="forecast-open" data-id="${esc(e.id)}">${e.date < store.today ? 'Já caiu? ' : ''}${esc(e.note)}</button>`).join('')}</div>` : '';
+    const landed = m.entries.length ? `<div class="row wrap" style="gap:6px;margin-top:6px">${m.entries.map((e) => `<button class="btn sm" data-act="${e.sched ? 'entry-open' : 'forecast-open'}" data-id="${esc(e.id)}">${e.sched ? 'Agendado: ' : e.date < store.today ? 'Já caiu? ' : ''}${esc(e.note)}</button>`).join('')}</div>` : '';
     return `<section class="card tight stack"><b class="small">${title}</b>${rows || (extra.trim() ? '' : '<div class="tiny c-ink3">Nenhuma conta vence nesse período.</div>')}${extra}${landed}</section>`;
   }).join('');
 

@@ -31,10 +31,11 @@ export function renderSovereign(d, store) {
     return `<div class="tick${sats.total >= m ? ' on' : ''}" style="left:${left}%"><i></i>${label}</div>`;
   }).join('');
 
-  const erasHTML = eras.eras.map((e) => `<div class="era${e.done ? ' done' : ''}${e.n === eras.currentEra ? ' current' : ''}">
+  // fase futura nunca aparece como "concluída": ela só conta depois que as anteriores fecham
+  const erasHTML = eras.eras.map((e) => `<div class="era${e.done && e.n < eras.currentEra ? ' done' : ''}${e.n === eras.currentEra ? ' current' : ''}${e.n > eras.currentEra ? ' later' : ''}">
       <div class="medal">${e.roman}</div>
       <div>
-        <div class="row between"><b>${esc(e.name)}</b><span class="tiny num">${Math.round(e.progress * 100)}%</span></div>
+        <div class="row between"><b>${esc(e.name)}</b><span class="tiny num">${e.n > eras.currentEra ? (e.done ? 'pronta quando chegar' : 'depois') : `${Math.round(e.progress * 100)}%`}</span></div>
         <div class="tiny">${esc(e.goal)}</div>
         ${e.n <= eras.currentEra ? `<ul class="checks">${e.checks.map((c) => `<li class="${c.ok ? 'ok' : 'no'}">${icon(c.ok ? 'check' : 'clock')}<span>${esc(c.label)}${c.detail ? ` <span class="tiny">· ${esc(c.detail)}</span>` : ''}</span></li>`).join('')}</ul>` : ''}
       </div>

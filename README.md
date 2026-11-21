@@ -95,3 +95,10 @@ Botão **⇄ Mover saldo** (aba Dinheiro e verso de cada cartão) passa dinheiro
 
 ## v2.5 — Parcelamento em todos os cartões e custo extra nos pagamentos
 Compra parcelada em qualquer cartão (comum ou com garantia, exceto se marcado "este cartão não faz parcelamento") vira uma dívida própria em N parcelas; pagar cada parcela devolve limite/libera garantia. No pagamento, "valor exato que saiu da conta" registra juros/multa/taxa pagos a mais (com motivo), somando mês a mês.
+
+## v2.6 — Fatura do mês, agrupar parcelas e revisão geral
+- Torre do cartão = fatura do mês (à vista + a parcela do mês de cada compra); "Agrupar parcelas do cartão" mostra todas, em cima da torre ou numa torre só da compra. Tela do cartão mostra cada parcela no seu mês.
+- Guia, plano e assistente contam o que vai entrar antes do vencimento (não mandam pegar empréstimo à toa); lançamentos agendados em conta Pix entram no plano; entrada agendada que parece fixa pode virar "todo mês" com um toque.
+- Simulação paga a fatura do cartão no mês em que vence, antes de adiantar outras dívidas.
+- Assistente: entende a conta citada na frase ("gastei 300 no nubank em 3x"), parcelas e origem "da bipa" sem confundir com o cofrinho.
+- Conta e cofrinho podem trocar de tipo; fases futuras não aparecem como concluídas.

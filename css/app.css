@@ -705,3 +705,4 @@ details.more summary::-webkit-details-marker { display: none; }
 .nowrap { white-space: nowrap; }
 .prism.inst-cur .f { background: linear-gradient(180deg, rgba(150, 175, 205, 0.75), rgba(110, 130, 160, 0.6)); border: 1px solid rgba(190, 210, 235, 0.7); }
 .prism.inst-cur .t { background: rgba(190, 210, 235, 0.6); }
+.era.later { opacity: 0.72; }

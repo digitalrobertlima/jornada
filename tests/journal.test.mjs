@@ -72,7 +72,7 @@ test('desfazer cadastro remove a dívida; desfazer exclusão traz de volta', () 
 
 test('desfazer pagamento de parcela volta a contagem', () => {
   let s = buildDemoScenario(TODAY);
-  s.obligations.push(normalizeObligation({ id: 'b', profileId: 'prof_01', type: 'personal_debt', beneficiary: 'Betina', balance: 225, installmentAmount: 75, installmentsTotal: 3, installmentsLeft: 3, dueDate: '2026-11-25' }));
+  s.obligations.push(normalizeObligation({ id: 'b', profileId: 'prof_01', type: 'personal_debt', beneficiary: 'Pessoa A', balance: 225, installmentAmount: 75, installmentsTotal: 3, installmentsLeft: 3, dueDate: '2026-11-25' }));
   const a = newAction('p', 'Pagamento');
   const r = payObligation(s, { obligationId: 'b', profileId: 'prof_01', amount: 75, accountId: 'acc_bank_01', date: TODAY }, { today: TODAY });
   s = commit(s, r.changes, a);

@@ -21,6 +21,56 @@ export const LOCKS = { alimentacao: 'Alimentação / mercado', transporte: 'Tran
 
 export const isLockedAccount = (acc) => acc?.type === 'benefit_card';
 
+/**
+ * Lançamentos agendados comuns (não previsões) em conta Pix: ex. um vale pago em conta, um débito marcado.
+ * Entram no plano e na projeção na data marcada (o app posta sozinho quando a data chega).
+ */
+export function scheduledLiquid(state, profileId, until = '9999-12-31') {
+  const liquidIds = new Set(state.accounts.filter((a) => a.profileId === profileId && isRealLiquidity(a)).map((a) => a.id));
+  return state.ledger
+    .filter((e) => e.profileId === profileId && e.status === 'scheduled' && !e.forecast && !e.obligationId && liquidIds.has(e.accountId) && e.date <= until)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Dinheiro livre que entra (previsões Pix + agendados) de hoje até `until`, já descontando saídas agendadas. */
+export function liquidIncoming(state, profileId, today, until) {
+  const list = [
+    ...pendingForecasts(state, profileId).filter((e) => e.liquidity !== 'locked' && e.date <= until).map((e) => ({ date: e.date < today ? today : e.date, amount: num(e.amount), note: e.note, id: e.id })),
+    ...scheduledLiquid(state, profileId, until).map((e) => ({ date: e.date, amount: e.direction === 'in' ? num(e.amount) : -num(e.amount), note: e.note || e.category, id: e.id })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  return { list, total: round2(list.reduce((t, e) => t + e.amount, 0)) };
+}
+
+/**
+ * As contas essenciais dos próximos dias fecham contando o que vai entrar antes de cada vencimento?
+ * @returns {{ shortfall: number, worstDate: string|null, used: object[] }}
+ */
+export function essentialsCoverage(state, profileId, today, wl, cash) {
+  const items = [...wl.items].sort((a, b) => String(a.ob.dueDate || today).localeCompare(String(b.ob.dueDate || today)));
+  let need = 0;
+  let shortfall = 0;
+  let worstDate = null;
+  let lastDate = today;
+  for (const i of items) {
+    const date = i.ob.dueDate && i.ob.dueDate > today ? i.ob.dueDate : today;
+    need += num(i.dueNow);
+    const have = cash + liquidIncoming(state, profileId, today, date).total;
+    if (need - have > shortfall + 0.004) { shortfall = round2(need - have); worstDate = date; }
+    lastDate = date;
+  }
+  return { shortfall: round2(shortfall), worstDate, used: liquidIncoming(state, profileId, today, lastDate).list.filter((e) => e.amount > 0) };
+}
+
+/** Transforma um lançamento agendado comum em previsão que se repete todo mês (ex.: vale pago em conta). */
+export function scheduledToMonthly(state, entryId) {
+  const e = state.ledger.find((x) => x.id === entryId);
+  if (!e || e.status !== 'scheduled' || e.direction !== 'in') throw new Error('Esse lançamento não é uma entrada agendada.');
+  const t = `${e.note || ''} ${e.category || ''}`.toLowerCase();
+  const kind = /transporte/.test(t) ? 'vale_transporte' : /alimenta|refei/.test(t) ? 'vale_alimentacao' : /adiantamento|quinzena/.test(t) ? 'adiantamento' : /sal[aá]rio/.test(t) ? 'salario' : 'outro';
+  const acc = state.accounts.find((a) => a.id === e.accountId);
+  return { ledger: [{ ...e, forecast: true, repeat: 'monthly', kind, liquidity: acc && isRealLiquidity(acc) ? 'pix' : 'locked' }] };
+}
+
 /** Previsões ainda não confirmadas (inclui as atrasadas: eram para ter entrado). */
 export function pendingForecasts(state, profileId) {
   return state.ledger
@@ -126,9 +176,11 @@ export function planDistribution(state, profileId, today, tri, { horizon = 45, r
   const maxEnd = addDays(today, horizon);
   const pending = pendingForecasts(state, profileId).filter((e) => e.date <= maxEnd);
   // só avalia até onde a previsão alcança: contas depois da última entrada prevista (e além de 15 dias) ainda são "futuro sem previsão"
-  const lastLiquid = pending.filter((e) => e.liquidity !== 'locked').reduce((m, e) => (e.date > m ? e.date : m), today);
+  const lastLiquid = [...pending.filter((e) => e.liquidity !== 'locked'), ...scheduledLiquid(state, profileId, maxEnd).filter((e) => e.direction === 'in')].reduce((m, e) => (e.date > m ? e.date : m), today);
   const end = [addDays(today, 15), lastLiquid].reduce((a, b) => (a > b ? a : b));
-  const liquid = pending.filter((e) => e.liquidity !== 'locked');
+  // agendados comuns em conta Pix (ex.: vale pago em conta) também são dinheiro chegando — ou saindo
+  const sched = scheduledLiquid(state, profileId, maxEnd).map((e) => ({ ...e, sched: true, amount: e.direction === 'in' ? num(e.amount) : -num(e.amount), note: e.note || e.category }));
+  const liquid = [...pending.filter((e) => e.liquidity !== 'locked'), ...sched];
   const lockedIn = pending.filter((e) => e.liquidity === 'locked');
   const lockOf = (e) => INCOME_KINDS[e.kind]?.lock || accounts.find((a) => a.id === e.accountId)?.lock || 'alimentacao';
 
@@ -144,6 +196,7 @@ export function planDistribution(state, profileId, today, tri, { horizon = 45, r
     date, entries: byDate.get(date) || [], income: round2((byDate.get(date) || []).reduce((s, e) => s + e.amount, 0)),
     label: (byDate.get(date) || []).map((e) => e.note).join(' + '), lines: [], reserve: 0, startBalance: 0, leftover: 0,
     overdue: (byDate.get(date) || []).some((e) => e.date < today),
+    dueToday: (byDate.get(date) || []).some((e) => e.date === today),
   }));
 
   // ocorrências a pagar
@@ -242,7 +295,7 @@ export function planDistribution(state, profileId, today, tri, { horizon = 45, r
 
   const totalLocked = poolAt(end);
   const lockedList = Object.entries(totalLocked).filter(([, v]) => v > 0.004).map(([lock, amount]) => ({ lock, label: LOCKS[lock], amount: round2(amount) }));
-  const incomeLiquid = round2(liquid.reduce((s, e) => s + e.amount, 0));
+  const incomeLiquid = round2(liquid.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0));
   const incomeLocked = round2(lockedIn.reduce((s, e) => s + e.amount, 0));
   const essentialGap = gaps.some((g) => g.essential);
   return {

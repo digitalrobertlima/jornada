@@ -7,7 +7,7 @@ import { parseBasic } from '../js/agent/basic.js';
 
 const mk = () => ({
   accounts: [
-    normalizeAccount({ id: 'cc', profileId: 'p', name: 'Bipa - Conta Corrente', type: 'checking_cash', balance: 200 }),
+    normalizeAccount({ id: 'cc', profileId: 'p', name: 'Banco Azul - Conta', type: 'checking_cash', balance: 200 }),
     normalizeAccount({ id: 'cg', profileId: 'p', name: 'Bipa Cartão', type: 'collateralized_yield_crypto', collateralTotal: 1000, lockedInstallments: 300 }),
     normalizeAccount({ id: 'cf', profileId: 'p', name: 'Cofrinho Mercado Livre', type: 'savings_pot', balance: 50 }),
     normalizeAccount({ id: 'vl', profileId: 'p', name: 'Caju', type: 'benefit_card', balance: 540 }),
